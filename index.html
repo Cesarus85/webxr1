@@ -82,13 +82,25 @@
         this.rotationSpeed = 2.0; // Rotationsgeschwindigkeit (rad/s)
         this.rig = this.el;
         this.camera = this.rig.querySelector('a-camera');
-        this.controllers = [];
+        this.leftController = null;
+        this.rightController = null;
         
-        // Warte auf Controller-Initialisierung
+        // Event Listener für Controller-Initialisierung
+        this.el.sceneEl.addEventListener('controllerconnected', (event) => {
+          const controller = event.detail.target;
+          const handControls = controller.components['hand-controls'];
+          if (handControls && handControls.data.hand === 'left') {
+            this.leftController = controller;
+          } else if (handControls && handControls.data.hand === 'right') {
+            this.rightController = controller;
+          }
+        });
+        
+        // Fallback: Direct query nach Timeout
         setTimeout(() => {
-          this.leftController = document.querySelector('#left-hand');
-          this.rightController = document.querySelector('#right-hand');
-        }, 1000);
+          if (!this.leftController) this.leftController = document.querySelector('#left-hand');
+          if (!this.rightController) this.rightController = document.querySelector('#right-hand');
+        }, 1500);
       },
 
       tick: function (time, deltaTime) {
@@ -97,77 +109,55 @@
         const dt = deltaTime / 1000; // Delta time in Sekunden
         
         // Linker Controller für Bewegung (Thumbstick)
-        const leftGamepad = this.getGamepad(this.leftController);
-        if (leftGamepad && leftGamepad.axes.length >= 4) {
-          const xAxis = leftGamepad.axes[2]; // Thumbstick X
-          const yAxis = leftGamepad.axes[3]; // Thumbstick Y
+        if (this.leftController.components['hand-controls'] && this.leftController.components['hand-controls'].gamepad) {
+          const gamepad = this.leftController.components['hand-controls'].gamepad;
           
-          // Deadzone für Thumbstick
-          const deadzone = 0.1;
-          const moveX = Math.abs(xAxis) > deadzone ? xAxis : 0;
-          const moveZ = Math.abs(yAxis) > deadzone ? -yAxis : 0; // Negiert für natürliche Bewegung
-          
-          if (moveX !== 0 || moveZ !== 0) {
-            // Bewegung relativ zur Kamera-Rotation
-            const cameraRotation = this.camera.object3D.rotation.y;
+          if (gamepad.axes && gamepad.axes.length >= 4) {
+            const xAxis = gamepad.axes[2]; // Thumbstick X
+            const yAxis = gamepad.axes[3]; // Thumbstick Y
             
-            // Berechne Bewegungsvektor in Weltkoordinaten
-            const forward = new THREE.Vector3(
-              Math.sin(cameraRotation),
-              0,
-              Math.cos(cameraRotation)
-            ).multiplyScalar(moveZ * this.moveSpeed * dt);
+            // Deadzone für Thumbstick
+            const deadzone = 0.15;
+            const moveX = Math.abs(xAxis) > deadzone ? xAxis : 0;
+            const moveZ = Math.abs(yAxis) > deadzone ? -yAxis : 0; // Negiert für natürliche Bewegung
             
-            const right = new THREE.Vector3(
-              Math.cos(cameraRotation),
-              0,
-              -Math.sin(cameraRotation)
-            ).multiplyScalar(moveX * this.moveSpeed * dt);
-            
-            const movement = forward.add(right);
-            this.rig.object3D.position.add(movement);
+            if (moveX !== 0 || moveZ !== 0) {
+              // Bewegung relativ zur Rig-Rotation (nicht Kamera)
+              const rigRotation = this.rig.object3D.rotation.y;
+              
+              // Berechne Bewegungsvektor in Weltkoordinaten
+              const forward = new THREE.Vector3(
+                Math.sin(rigRotation),
+                0,
+                Math.cos(rigRotation)
+              ).multiplyScalar(moveZ * this.moveSpeed * dt);
+              
+              const right = new THREE.Vector3(
+                Math.cos(rigRotation),
+                0,
+                -Math.sin(rigRotation)
+              ).multiplyScalar(moveX * this.moveSpeed * dt);
+              
+              const movement = forward.add(right);
+              this.rig.object3D.position.add(movement);
+            }
           }
         }
         
         // Rechter Controller für Rotation (Thumbstick)
-        const rightGamepad = this.getGamepad(this.rightController);
-        if (rightGamepad && rightGamepad.axes.length >= 4) {
-          const rotateX = rightGamepad.axes[2]; // Thumbstick X für Rotation
+        if (this.rightController.components['hand-controls'] && this.rightController.components['hand-controls'].gamepad) {
+          const gamepad = this.rightController.components['hand-controls'].gamepad;
           
-          // Deadzone für Rotation
-          const deadzone = 0.1;
-          if (Math.abs(rotateX) > deadzone) {
-            this.rig.object3D.rotation.y -= rotateX * this.rotationSpeed * dt;
+          if (gamepad.axes && gamepad.axes.length >= 4) {
+            const rotateX = gamepad.axes[2]; // Thumbstick X für Rotation
+            
+            // Deadzone für Rotation
+            const deadzone = 0.15;
+            if (Math.abs(rotateX) > deadzone) {
+              this.rig.object3D.rotation.y -= rotateX * this.rotationSpeed * dt;
+            }
           }
         }
-      },
-      
-      getGamepad: function(controller) {
-        if (!controller || !controller.components || !controller.components['hand-controls']) {
-          return null;
-        }
-        
-        const handControls = controller.components['hand-controls'];
-        
-        // Versuche verschiedene Wege, das Gamepad zu bekommen
-        if (handControls.controller) {
-          return handControls.controller;
-        }
-        
-        if (handControls.gamepad) {
-          return handControls.gamepad;
-        }
-        
-        // Fallback: Direkt über WebXR Gamepads
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        for (let i = 0; i < gamepads.length; i++) {
-          const gamepad = gamepads[i];
-          if (gamepad && gamepad.id.toLowerCase().includes('oculus')) {
-            return gamepad;
-          }
-        }
-        
-        return null;
       }
     });
 
@@ -178,41 +168,58 @@
           this.generateWorld();
         });
 
-        // Block platzieren (rechter Controller, Trigger)
-        const rightHand = document.querySelector('#right-hand');
-        rightHand.addEventListener('triggerdown', () => {
-          const raycaster = rightHand.components.raycaster;
-          const intersection = raycaster.getIntersection(document.querySelector('.block'));
-          if (intersection) {
-            // Platzieren neben dem getroffenen Block
-            const point = intersection.point;
-            const normal = intersection.face.normal;
-            const newPos = new THREE.Vector3().copy(point).add(normal);
-            newPos.x = Math.round(newPos.x);
-            newPos.y = Math.round(newPos.y);
-            newPos.z = Math.round(newPos.z);
-            this.addBlock(newPos);
-          } else {
-            // Platzieren an gerundeter Position vor dem Spieler
-            const direction = rightHand.object3D.getWorldDirection(new THREE.Vector3());
-            const pos = rightHand.object3D.position.clone().add(direction.multiplyScalar(2));
-            this.addBlock({
-              x: Math.round(pos.x),
-              y: Math.round(pos.y),
-              z: Math.round(pos.z)
+        // Warte auf Controller-Initialisierung für Block-Interaktion
+        const self = this;
+        setTimeout(() => {
+          const rightHand = document.querySelector('#right-hand');
+          const leftHand = document.querySelector('#left-hand');
+          
+          if (rightHand) {
+            // Block platzieren (rechter Controller, Trigger)
+            rightHand.addEventListener('triggerdown', () => {
+              const raycaster = rightHand.components.raycaster;
+              if (raycaster) {
+                const intersections = raycaster.intersectedEls;
+                if (intersections.length > 0) {
+                  // Platzieren neben dem getroffenen Block
+                  const intersection = raycaster.getIntersection(intersections[0]);
+                  if (intersection) {
+                    const point = intersection.point;
+                    const normal = intersection.face.normal;
+                    const newPos = new THREE.Vector3().copy(point).add(normal);
+                    newPos.x = Math.round(newPos.x);
+                    newPos.y = Math.max(0, Math.round(newPos.y));
+                    newPos.z = Math.round(newPos.z);
+                    self.addBlock(newPos);
+                  }
+                } else {
+                  // Platzieren vor dem Controller
+                  const direction = new THREE.Vector3(0, 0, -1);
+                  direction.applyQuaternion(rightHand.object3D.quaternion);
+                  const pos = rightHand.object3D.position.clone().add(direction.multiplyScalar(2));
+                  self.addBlock({
+                    x: Math.round(pos.x),
+                    y: Math.max(0, Math.round(pos.y)),
+                    z: Math.round(pos.z)
+                  });
+                }
+              }
             });
           }
-        });
 
-        // Block entfernen (linker Controller, Trigger)
-        const leftHand = document.querySelector('#left-hand');
-        leftHand.addEventListener('triggerdown', () => {
-          const raycaster = leftHand.components.raycaster;
-          const intersection = raycaster.getIntersection(document.querySelector('.block'));
-          if (intersection) {
-            intersection.object.el.remove();
+          if (leftHand) {
+            // Block entfernen (linker Controller, Trigger)
+            leftHand.addEventListener('triggerdown', () => {
+              const raycaster = leftHand.components.raycaster;
+              if (raycaster) {
+                const intersections = raycaster.intersectedEls;
+                if (intersections.length > 0) {
+                  intersections[0].remove();
+                }
+              }
+            });
           }
-        });
+        }, 1500);
       },
 
       // Generiere eine einfache Welt aus Blöcken
