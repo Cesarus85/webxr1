@@ -4,16 +4,23 @@
     <meta charset="utf-8">
     <title>WebXR Minecraft Clone</title>
     <meta name="description" content="A simple Minecraft-like game in WebXR">
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+
+    <!-- A‑Frame updated to latest stable (1.4.2) -->
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v6.1.1/dist/aframe-extras.min.js"></script>
+
+    <!-- Permissions Policy: allow spatial tracking for WebXR -->
+    <meta http-equiv="Permissions-Policy" content="xr-spatial-tracking=(self)" />
+
+    <!-- Optional: tighten CSP while allowing inline styles/scripts required by A‑Frame -->
+    <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' https://aframe.io https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; connect-src *; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:;" /> -->
+
     <script src="minecraft-clone.js"></script>
 </head>
 <body>
     <a-scene 
         background="color: #87CEEB"
         vr-mode-ui="enabled: true"
-        device-orientation-permission-ui="enabled: true"
-        embedded
         style="height: 100vh; width: 100vw;">
         
         <!-- Assets -->
