@@ -1,156 +1,148 @@
-<!DOCTYPE html>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>WebXR Voxel Builder</title>
-  <meta name="description" content="Minecraft‑ähnliche Voxelwelt in WebXR" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: #000;
-    }
-    #hint {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      font-family: sans-serif;
-      color: #fff;
-      background: rgba(0, 0, 0, 0.4);
-      padding: 6px 10px;
-      border-radius: 8px;
-      user-select: none;
-      pointer-events: none;
-      z-index: 5;
-    }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft-Klon in WebXR</title>
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.min.js"></script>
 </head>
 <body>
-  <div id="hint">Trigger = Block setzen · Linker Stick = Laufen</div>
-  <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.162.0/build/three.module.js';
-    import { VRButton } from 'https://unpkg.com/three@0.162.0/examples/jsm/webxr/VRButton.js';
-    import { XRControllerModelFactory } from 'https://unpkg.com/three@0.162.0/examples/jsm/webxr/XRControllerModelFactory.js';
+  <a-scene>
+    <!-- Kamera mit Bewegung über Controller -->
+    <a-entity id="rig" movement-controls="speed: 0.1">
+      <a-camera position="0 1.6 0"></a-camera>
+      <!-- Rechter Controller -->
+      <a-entity id="right-hand"
+                hand-controls="hand: right"
+                raycaster="objects: .block; far: 5"
+                laser-controls
+                line="color: red; opacity: 0.75"></a-entity>
+      <!-- Linker Controller -->
+      <a-entity id="left-hand"
+                hand-controls="hand: left"
+                raycaster="objects: .block; far: 5"
+                laser-controls
+                line="color: blue; opacity: 0.75"></a-entity>
+    </a-entity>
 
-    // ----- Grundaufbau -----------------------------------------------
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x88ccee);
+    <!-- Boden -->
+    <a-plane rotation="-90 0 0" width="100" height="100" color="#7BC8A4"></a-plane>
 
-    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 1.6, 3); // Starte etwas über dem Boden und leicht zurückgesetzt
+    <!-- Himmel -->
+    <a-sky color="#87CEEB"></a-sky>
+  </a-scene>
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.xr.enabled = true;
-    document.body.appendChild(renderer.domElement);
-    document.body.appendChild(VRButton.createButton(renderer));
+  <script>
+    // A-Frame-Komponente für Block-Interaktion
+    AFRAME.registerComponent('block-interaction', {
+      init: function () {
+        this.el.sceneEl.addEventListener('loaded', () => {
+          this.generateWorld();
+        });
 
-    // ----- Licht ------------------------------------------------------
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(5, 10, 7.5);
-    scene.add(dirLight);
+        // Block platzieren (rechter Controller, Trigger)
+        const rightHand = document.querySelector('#right-hand');
+        rightHand.addEventListener('triggerdown', () => {
+          const raycaster = rightHand.components.raycaster;
+          const intersection = raycaster.getIntersection(document.querySelector('.block'));
+          if (intersection) {
+            // Platzieren neben dem getroffenen Block
+            const point = intersection.point;
+            const normal = intersection.face.normal;
+            const newPos = new THREE.Vector3().copy(point).add(normal);
+            newPos.x = Math.round(newPos.x);
+            newPos.y = Math.round(newPos.y);
+            newPos.z = Math.round(newPos.z);
+            this.addBlock(newPos);
+          } else {
+            // Platzieren an gerundeter Position vor dem Spieler
+            const direction = rightHand.object3D.getWorldDirection(new THREE.Vector3());
+            const pos = rightHand.object3D.position.clone().add(direction.multiplyScalar(2));
+            this.addBlock({
+              x: Math.round(pos.x),
+              y: Math.round(pos.y),
+              z: Math.round(pos.z)
+            });
+          }
+        });
 
-    // ----- Voxel‑Logik -------------------------------------------------
-    const world = new Map(); // key => Mesh
-    const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
+        // Block entfernen (linker Controller, Trigger)
+        const leftHand = document.querySelector('#left-hand');
+        leftHand.addEventListener('triggerdown', () => {
+          const raycaster = leftHand.components.raycaster;
+          const intersection = raycaster.getIntersection(document.querySelector('.block'));
+          if (intersection) {
+            intersection.object.el.remove();
+          }
+        });
+      },
 
-    function hash(x, y, z) {
-      return `${x},${y},${z}`;
-    }
-
-    function placeBlock(x, y, z, color = 0xcccccc) {
-      const id = hash(x, y, z);
-      if (world.has(id)) return;
-      const mat = new THREE.MeshStandardMaterial({ color });
-      const cube = new THREE.Mesh(cubeGeo, mat);
-      cube.position.set(x + 0.5, y + 0.5, z + 0.5);
-      scene.add(cube);
-      world.set(id, cube);
-    }
-
-    // Boden generieren (eine Ebene tiefer, damit man nicht im Block spawnt)
-    for (let x = -15; x <= 15; x++) {
-      for (let z = -15; z <= 15; z++) {
-        placeBlock(x, -2, z, 0x8ecc5b);
-      }
-    }
-
-    // ----- Controller‑Setup ------------------------------------------
-    const controllerModelFactory = new XRControllerModelFactory();
-
-    const controllers = [0, 1].map((i) => {
-      const ctrl = renderer.xr.getController(i);
-      scene.add(ctrl);
-
-      const grip = renderer.xr.getControllerGrip(i);
-      grip.add(controllerModelFactory.createControllerModel(grip));
-      scene.add(grip);
-
-      return { ctrl, grip };
-    });
-
-    // Raycaster & Matrix für Platzierung
-    const raycaster = new THREE.Raycaster();
-    const workingMatrix = new THREE.Matrix4();
-
-    function onSelect() {
-      workingMatrix.identity().extractRotation(this.matrixWorld);
-      raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
-      raycaster.ray.direction.set(0, 0, -1).applyMatrix4(workingMatrix);
-
-      // nächster Block vor der Fläche
-      const intersects = raycaster.intersectObjects([...world.values()]);
-      let target;
-      if (intersects.length) {
-        target = intersects[0].point.clone().add(intersects[0].face.normal).floor();
-      } else {
-        target = raycaster.ray.origin.clone().add(raycaster.ray.direction.clone().multiplyScalar(5)).floor();
-      }
-      placeBlock(target.x, target.y, target.z);
-    }
-
-    controllers.forEach(({ ctrl }) => ctrl.addEventListener('select', onSelect));
-
-    // ----- Locomotion -------------------------------------------------
-    const walkSpeed = 3; // Meter pro Sekunde
-
-    // Wir bewegen die "Spieler‑Rig", also eine Gruppe, statt direkt die Kamera
-    const player = new THREE.Group();
-    scene.add(player);
-    player.add(camera);
-
-    function handleGamepad() {
-      const session = renderer.xr.getSession();
-      if (!session) return;
-      session.inputSources.forEach((source) => {
-        if (source.handedness === 'left' && source.gamepad) {
-          const [x, y] = source.gamepad.axes;
-          const dead = 0.15;
-          if (Math.abs(x) > dead || Math.abs(y) > dead) {
-            const dir = new THREE.Vector3(-x, 0, -y).normalize();
-            dir.applyQuaternion(camera.quaternion);
-            player.position.addScaledVector(dir, walkSpeed * 0.01); // frame‑abhängig ≈ 10 ms
+      // Generiere eine einfache Welt aus Blöcken
+      generateWorld: function () {
+        for (let x = -5; x <= 5; x++) {
+          for (let z = -5; z <= 5; z++) {
+            if (Math.random() > 0.7) {
+              this.addBlock({ x, y: 0, z });
+            }
           }
         }
-      });
-    }
+      },
 
-    // ----- Render‑Loop ------------------------------------------------
-    renderer.setAnimationLoop(() => {
-      handleGamepad();
-      renderer.render(scene, camera);
+      // Füge einen Block hinzu
+      addBlock: function (position) {
+        const block = document.createElement('a-box');
+        block.setAttribute('position', `${position.x} ${position.y} ${position.z}`);
+        block.setAttribute('color', '#8B4513');
+        block.setAttribute('class', 'block');
+        block.setAttribute('width', '1');
+        block.setAttribute('height', '1');
+        block.setAttribute('depth', '1');
+        this.el.sceneEl.appendChild(block);
+      }
     });
 
-    // ----- Resize -----------------------------------------------------
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
+    // Wende die Komponente auf die Szene an
+    document.querySelector('a-scene').setAttribute('block-interaction', '');
   </script>
 </body>
 </html>
