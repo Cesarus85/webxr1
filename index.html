@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WebXR Thumbstick Bewegung</title>
+    <title>Minecraft-Klon mit WebXR</title>
     <style>
       body { margin: 0; }
       canvas { display: block; }
@@ -31,95 +31,161 @@
         0.1,
         1000
       );
-      camera.position.set(0, 1.6, 0); // Spielerhöhe auf Augenhöhe setzen
+      camera.position.set(0, 1.6, 0); // Spielerhöhe auf Augenhöhe
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true; // WebXR aktivieren
+      renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
       // VR-Button hinzufügen
       document.body.appendChild(VRButton.createButton(renderer));
 
       // Beleuchtung
-      const light = new THREE.AmbientLight(0xffffff, 0.5);
-      scene.add(light);
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+      scene.add(ambientLight);
       const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-      directionalLight.position.set(0, 1, 0);
+      directionalLight.position.set(10, 10, 10);
       scene.add(directionalLight);
 
-      // Würfel als Testobjekt
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-      const cube = new THREE.Mesh(geometry, material);
-      cube.position.set(0, 1.6, -2); // Würfel vor der Kamera platzieren
-      scene.add(cube);
-
-      // Controller initialisieren
-      const controller1 = renderer.xr.getController(0);
-      const controller2 = renderer.xr.getController(1);
-      scene.add(controller1);
-      scene.add(controller2);
-
-      // Spieler-Objekt (Gruppe) für Bewegung und Drehung
+      // Spieler-Objekt (Gruppe für Kamera und Bewegung)
       const player = new THREE.Group();
       player.add(camera);
       scene.add(player);
+      player.position.set(8, 2, 8); // Startposition über dem Boden
+
+      // Controller initialisieren
+      const controller1 = renderer.xr.getController(0); // Linker Controller
+      const controller2 = renderer.xr.getController(1); // Rechter Controller
+      scene.add(controller1);
+      scene.add(controller2);
+
+      // Controller-Modelle (für visuelles Feedback)
+      const controllerGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+      const controllerMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const controllerMesh1 = new THREE.Mesh(controllerGeometry, controllerMaterial);
+      const controllerMesh2 = new THREE.Mesh(controllerGeometry, controllerMaterial);
+      controller1.add(controllerMesh1);
+      controller2.add(controllerMesh2);
 
       // Bewegungs- und Rotationsgeschwindigkeit
-      const moveSpeed = 0.1; // Bewegungsgeschwindigkeit
-      const rotationSpeed = 0.05; // Rotationsgeschwindigkeit
+      const moveSpeed = 0.1;
+      const rotationSpeed = 0.05;
+
+      // Weltgenerierung (Minecraft-ähnliche Blöcke)
+      const worldSize = 16; // 16x16x4 Welt
+      const blocks = {};
+      const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+      const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+      const dirtMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+
+      // Einfache Welt generieren
+      for (let x = 0; x < worldSize; x++) {
+        for (let z = 0; z < worldSize; z++) {
+          const height = Math.floor(Math.random() * 2) + 1; // Zufällige Höhe (1-2 Blöcke)
+          for (let y = 0; y < height; y++) {
+            const block = new THREE.Mesh(blockGeometry, y === height - 1 ? grassMaterial : dirtMaterial);
+            block.position.set(x, y, z);
+            scene.add(block);
+            blocks[`${x},${y},${z}`] = block; // Block speichern für Interaktion
+          }
+        }
+      }
+
+      // Raycaster für Block-Interaktion
+      const raycaster = new THREE.Raycaster();
+      const pointer = new THREE.Vector2(0, 0); // Mittig im Sichtfeld
 
       // Animationsschleife
       function animate() {
         renderer.setAnimationLoop(() => {
-          // Controller-Input verarbeiten
           handleControllerInput();
-
-          // Würfel rotieren (visuelles Feedback)
-          cube.rotation.x += 0.01;
-          cube.rotation.y += 0.01;
-
           renderer.render(scene, camera);
         });
       }
 
-      // Funktion zum Verarbeiten der Controller-Eingaben
+      // Controller-Eingaben verarbeiten
       function handleControllerInput() {
         const session = renderer.xr.getSession();
         if (session) {
-          // Alle Eingabequellen (Controller) durchlaufen
           for (const source of session.inputSources) {
             if (source.gamepad) {
-              const axes = source.gamepad.axes; // Achsen des Thumbsticks
-              const handedness = source.handedness; // Links oder rechts
+              const axes = source.gamepad.axes;
+              const buttons = source.gamepad.buttons;
+              const handedness = source.handedness;
 
-              // Thumbstick-Werte (meistens axes[2] und axes[3] für den rechten Thumbstick)
-              const xAxis = axes[2] || 0; // Horizontale Achse
-              const yAxis = axes[3] || 0; // Vertikale Achse
+              // Linker Controller: Bewegung
+              if (handedness === 'left') {
+                const xAxis = axes[2] || 0; // Horizontale Achse
+                const yAxis = axes[3] || 0; // Vertikale Achse
+                const deadzone = 0.1;
 
-              // Deadzone, um kleine Bewegungen zu ignorieren
-              const deadzone = 0.1;
-              if (Math.abs(xAxis) > deadzone || Math.abs(yAxis) > deadzone) {
-                if (handedness === 'right') {
-                  // Bewegung (vorwärts/rückwärts, seitwärts)
+                if (Math.abs(xAxis) > deadzone || Math.abs(yAxis) > deadzone) {
                   const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                  forward.y = 0; // Nur in der XZ-Ebene bewegen
+                  forward.y = 0; // Bewegung in XZ-Ebene
                   forward.normalize();
-
                   const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
                   right.y = 0;
                   right.normalize();
 
-                  // Bewegung basierend auf Thumbstick
                   player.position.addScaledVector(forward, -yAxis * moveSpeed);
                   player.position.addScaledVector(right, xAxis * moveSpeed);
+                }
 
-                  // Drehung (optional, hier mit rechtem Thumbstick X-Achse)
-                  player.rotation.y -= xAxis * rotationSpeed;
+                // Block platzieren (Trigger-Taste)
+                if (buttons[0]?.pressed) {
+                  placeBlock(source);
+                }
+              }
+
+              // Rechter Controller: Drehung
+              if (handedness === 'right') {
+                const xAxis = axes[2] || 0; // Horizontale Achse
+                const deadzone = 0.1;
+
+                if (Math.abs(xAxis) > deadzone) {
+                  player.rotation.y -= xAxis * rotationSpeed; // Drehung um Y-Achse
+                }
+
+                // Block abbauen (Trigger-Taste)
+                if (buttons[0]?.pressed) {
+                  removeBlock(source);
                 }
               }
             }
           }
+        }
+      }
+
+      // Block platzieren
+      function placeBlock(source) {
+        raycaster.setFromXRController(source);
+        const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+        if (intersects.length > 0) {
+          const intersect = intersects[0];
+          const normal = intersect.face.normal.clone();
+          const position = intersect.object.position.clone();
+          const newPosition = position.add(normal); // Block neben dem getroffenen Block platzieren
+
+          const key = `${newPosition.x},${newPosition.y},${newPosition.z}`;
+          if (!blocks[key]) {
+            const block = new THREE.Mesh(blockGeometry, grassMaterial);
+            block.position.copy(newPosition);
+            scene.add(block);
+            blocks[key] = block;
+          }
+        }
+      }
+
+      // Block abbauen
+      function removeBlock(source) {
+        raycaster.setFromXRController(source);
+        const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+        if (intersects.length > 0) {
+          const intersect = intersects[0];
+          const block = intersect.object;
+          const key = `${block.position.x},${block.position.y},${block.position.z}`;
+          scene.remove(block);
+          delete blocks[key];
         }
       }
 
