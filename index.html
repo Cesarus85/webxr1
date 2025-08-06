@@ -1,146 +1,110 @@
-<!DOCTYPE html>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>WebXR Minecraft Clone</title>
-    <meta name="description" content="A simple Minecraft-like game in WebXR">
-
-    <!-- A‑Frame updated to latest stable (1.4.2) -->
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v6.1.1/dist/aframe-extras.min.js"></script>
-
-    <!-- Permissions Policy: allow spatial tracking for WebXR -->
-    <meta http-equiv="Permissions-Policy" content="xr-spatial-tracking=(self)" />
-
-    <!-- Optional: tighten CSP while allowing inline styles/scripts required by A‑Frame -->
-    <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' https://aframe.io https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; connect-src *; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:;" /> -->
-
+    <meta name="description" content="A simple Minecraft clone in WebXR">
+    <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@7.4.0/dist/aframe-extras.min.js"></script>
     <script src="minecraft-clone.js"></script>
 </head>
 <body>
-    <a-scene 
-        background="color: #87CEEB"
-        vr-mode-ui="enabled: true"
-        style="height: 100vh; width: 100vw;">
-        
+    <a-scene webxr="required" renderer="colorManagement: true">
         <!-- Assets -->
         <a-assets>
-            <!-- Materials for blocks -->
-            <a-mixin id="grass-material" 
-                material="color: #4CC417; roughness: 0.8; metalness: 0.1"
-                geometry="primitive: box; width: 1; height: 1; depth: 1">
-            </a-mixin>
-            <a-mixin id="stone-material" 
-                material="color: #888888; roughness: 0.9; metalness: 0.2"
-                geometry="primitive: box; width: 1; height: 1; depth: 1">
-            </a-mixin>
-            <a-mixin id="wood-material" 
-                material="color: #8B4513; roughness: 0.7; metalness: 0.05"
-                geometry="primitive: box; width: 1; height: 1; depth: 1">
-            </a-mixin>
-            <a-mixin id="dirt-material" 
-                material="color: #8B4000; roughness: 0.8; metalness: 0.1"
-                geometry="primitive: box; width: 1; height: 1; depth: 1">
-            </a-mixin>
+            <!-- Mixins for block materials -->
+            <a-mixin id="grass-material" geometry="primitive: box" material="color: #4CC417"></a-mixin>
+            <a-mixin id="stone-material" geometry="primitive: box" material="color: #888888"></a-mixin>
+            <a-mixin id="wood-material" geometry="primitive: box" material="color: #8B4513"></a-mixin>
+            <a-mixin id="dirt-material" geometry="primitive: box" material="color: #8B4000"></a-mixin>
         </a-assets>
 
+        <!-- Camera Rig -->
+        <a-entity id="cameraRig" position="0 0 0">
+            <a-entity id="head" camera look-controls position="0 1.6 0"></a-entity>
+            <a-entity id="rightHand" 
+                     oculus-touch-controls="hand: right" 
+                     minecraft-controller="hand: right" 
+                     raycaster="objects: .clickable; interval: 100; showLine: true" 
+                     line="color: #00FF00; opacity: 0.5; end: 0 0 -10"
+                     teleport-locomotion></a-entity>
+            <a-entity id="leftHand" 
+                     oculus-touch-controls="hand: left" 
+                     minecraft-controller="hand: left" 
+                     raycaster="objects: .clickable; interval: 100; showLine: true" 
+                     line="color: #00FF00; opacity: 0.5; end: 0 0 -10"
+                     teleport-locomotion></a-entity>
+        </a-entity>
+
+        <!-- Environment -->
+        <a-plane id="ground" 
+                 position="0 0 0" 
+                 rotation="-90 0 0" 
+                 width="100" 
+                 height="100" 
+                 color="#7BC8A4" 
+                 shadow="receive: true"
+                 class="clickable"></a-plane>
+        <a-sky color="#ECECEC"></a-sky>
+
         <!-- Lighting -->
-        <a-light type="ambient" color="#404040"></a-light>
-        <a-light type="directional" position="5 10 5" color="#ffffff" intensity="0.8"></a-light>
-
-        <!-- Ground plane -->
-        <a-plane 
-            id="ground"
-            position="0 -0.1 0" 
-            rotation="-90 0 0" 
-            width="100" 
-            height="100" 
-            color="#4CC417" 
-            shadow="receive: true">
-        </a-plane>
-
-        <!-- VR Camera Rig -->
-        <a-entity 
-            id="cameraRig" 
-            movement-controls="fly: false; constrainToNavMesh: false"
-            position="0 1.6 3">
-            
-            <!-- VR Camera -->
-            <a-camera 
-                id="head" 
-                look-controls="pointerLockEnabled: true"
-                wasd-controls="acceleration: 20">
-            </a-camera>
-
-            <!-- Left Controller -->
-            <a-entity 
-                id="leftHand"
-                hand-controls="hand: left; handModelStyle: lowPoly; color: #ffcccc"
-                raycaster="objects: .clickable; far: 10; lineColor: red; lineOpacity: 0.5"
-                line="start: 0 0 0; end: 0 0 -5; color: red; opacity: 0.75; visible: false"
-                minecraft-controller="hand: left">
-            </a-entity>
-
-            <!-- Right Controller -->
-            <a-entity 
-                id="rightHand"
-                hand-controls="hand: right; handModelStyle: lowPoly; color: #ffcccc"
-                raycaster="objects: .clickable; far: 10; lineColor: blue; lineOpacity: 0.5"
-                line="start: 0 0 0; end: 0 0 -5; color: blue; opacity: 0.75; visible: false"
-                minecraft-controller="hand: right">
-            </a-entity>
-        </a-entity>
-
-        <!-- Sample blocks in the world -->
-        <a-entity 
-            class="clickable block" 
-            mixin="grass-material"
-            position="2 0.5 -2" 
-            shadow="cast: true; receive: true"
-            block-type="grass">
-        </a-entity>
-
-        <a-entity 
-            class="clickable block" 
-            mixin="stone-material"
-            position="-2 0.5 -2" 
-            shadow="cast: true; receive: true"
-            block-type="stone">
-        </a-entity>
-
-        <a-entity 
-            class="clickable block" 
-            mixin="wood-material"
-            position="0 0.5 -4" 
-            shadow="cast: true; receive: true"
-            block-type="wood">
-        </a-entity>
-
-        <!-- Build a small structure as example -->
-        <a-entity 
-            class="clickable block" 
-            mixin="stone-material"
-            position="1 0.5 -4" 
-            shadow="cast: true; receive: true"
-            block-type="stone">
-        </a-entity>
-
-        <a-entity 
-            class="clickable block" 
-            mixin="stone-material"
-            position="1 1.5 -4" 
-            shadow="cast: true; receive: true"
-            block-type="stone">
-        </a-entity>
-
-        <a-entity 
-            class="clickable block" 
-            mixin="wood-material"
-            position="0 1.5 -4" 
-            shadow="cast: true; receive: true"
-            block-type="wood">
-        </a-entity>
-
+        <a-entity light="type: ambient; intensity: 0.5"></a-entity>
+        <a-entity light="type: directional; intensity: 0.7; castShadow: true" position="5 10 5"></a-entity>
     </a-scene>
+
+    <script>
+        // Debug WebXR initialization
+        document.querySelector('a-scene').addEventListener('enter-vr', () => {
+            console.log('Entered VR mode successfully');
+        });
+        document.querySelector('a-scene').addEventListener('exit-vr', () => {
+            console.error('Exited VR mode unexpectedly');
+        });
+        // Check WebXR support
+        navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+            console.log('Immersive VR supported:', supported);
+        }).catch((error) => {
+            console.error('WebXR support check failed:', error);
+        });
+    </script>
 </body>
 </html>

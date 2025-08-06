@@ -27,68 +27,100 @@ AFRAME.registerComponent('minecraft-controller', {
         this.el.addEventListener('abuttondown', this.onAButtonDown.bind(this));
         this.el.addEventListener('bbuttondown', this.onBButtonDown.bind(this));
 
-        // Show raycast line when controller is detected
+        // Debug controller connection
         this.el.addEventListener('controllerconnected', (evt) => {
-            console.log('Controller connected:', this.data.hand);
+            console.log('Controller connected:', this.data.hand, evt.detail);
             this.el.setAttribute('line', 'visible', true);
+        });
+        this.el.addEventListener('controllerdisconnected', (evt) => {
+            console.error('Controller disconnected:', this.data.hand, evt.detail);
         });
     },
 
     onTriggerDown: function (evt) {
-        // Place block at raycast intersection
-        this.placeBlock();
+        try {
+            this.placeBlock();
+        } catch (error) {
+            console.error('Error in onTriggerDown:', error);
+        }
     },
 
     onGripDown: function (evt) {
-        // Remove block at raycast intersection
-        this.removeBlock();
+        try {
+            this.removeBlock();
+        } catch (error) {
+            console.error('Error in onGripDown:', error);
+        }
     },
 
     onThumbstickDown: function (evt) {
-        // Cycle through block types
-        this.cycleBlockType();
+        try {
+            this.cycleBlockType();
+        } catch (error) {
+            console.error('Error in onThumbstickDown:', error);
+        }
     },
 
     onXButtonDown: function (evt) {
-        selectedBlockType = 'grass';
-        this.showBlockTypeChange();
+        try {
+            selectedBlockType = 'grass';
+            this.showBlockTypeChange();
+        } catch (error) {
+            console.error('Error in onXButtonDown:', error);
+        }
     },
 
     onYButtonDown: function (evt) {
-        selectedBlockType = 'stone';
-        this.showBlockTypeChange();
+        try {
+            selectedBlockType = 'stone';
+            this.showBlockTypeChange();
+        } catch (error) {
+            console.error('Error in onYButtonDown:', error);
+        }
     },
 
     onAButtonDown: function (evt) {
-        selectedBlockType = 'wood';
-        this.showBlockTypeChange();
+        try {
+            selectedBlockType = 'wood';
+            this.showBlockTypeChange();
+        } catch (error) {
+            console.error('Error in onAButtonDown:', error);
+        }
     },
 
     onBButtonDown: function (evt) {
-        selectedBlockType = 'dirt';
-        this.showBlockTypeChange();
+        try {
+            selectedBlockType = 'dirt';
+            this.showBlockTypeChange();
+        } catch (error) {
+            console.error('Error in onBButtonDown:', error);
+        }
     },
 
     placeBlock: function () {
         const raycaster = this.el.getAttribute('raycaster');
-        const intersection = this.el.components.raycaster.getIntersection(this.el.sceneEl.querySelector('#ground'));
+        const ground = this.el.sceneEl.querySelector('#ground');
+        if (!ground) {
+            console.error('Ground element not found');
+            return;
+        }
+        const intersection = this.el.components.raycaster.getIntersection(ground);
         
         if (intersection) {
             const point = intersection.point;
-            
-            // Snap to grid
             const gridSize = 1;
             const x = Math.round(point.x / gridSize) * gridSize;
             const y = 0.5; // Half block height above ground
             const z = Math.round(point.z / gridSize) * gridSize;
 
-            // Check if block already exists at this position
+            // Check if block already exists
             const existingBlock = this.getBlockAtPosition(x, y, z);
             if (existingBlock) {
-                return; // Don't place if block already exists
+                console.log('Block already exists at position:', x, y, z);
+                return;
             }
 
-            // Create new block using mixin for better materials
+            // Create new block
             const block = document.createElement('a-entity');
             block.setAttribute('class', 'clickable block');
             block.setAttribute('mixin', `${selectedBlockType}-material`);
@@ -97,29 +129,29 @@ AFRAME.registerComponent('minecraft-controller', {
             block.setAttribute('block-type', selectedBlockType);
 
             this.el.sceneEl.appendChild(block);
+            console.log('Placed block:', selectedBlockType, 'at', x, y, z);
 
-            // Visual feedback
             this.showPlacementFeedback(x, y + 0.5, z);
+        } else {
+            console.error('No intersection for block placement');
         }
     },
 
     removeBlock: function () {
-        const raycaster = this.el.getAttribute('raycaster');
         const intersections = this.el.components.raycaster.intersections;
-        
         if (intersections.length > 0) {
             const intersection = intersections[0];
             const object = intersection.object;
             const el = object.el;
             
             if (el && el.classList.contains('block')) {
-                // Visual feedback before removal
                 const pos = el.getAttribute('position');
                 this.showRemovalFeedback(pos.x, pos.y + 0.5, pos.z);
-                
-                // Remove block
                 el.remove();
+                console.log('Removed block at:', pos.x, pos.y, pos.z);
             }
+        } else {
+            console.log('No block to remove at intersection');
         }
     },
 
@@ -128,8 +160,8 @@ AFRAME.registerComponent('minecraft-controller', {
         const currentIndex = types.indexOf(selectedBlockType);
         const nextIndex = (currentIndex + 1) % types.length;
         selectedBlockType = types[nextIndex];
-        
         this.showBlockTypeChange();
+        console.log('Selected block type:', selectedBlockType);
     },
 
     getBlockAtPosition: function (x, y, z) {
@@ -144,48 +176,40 @@ AFRAME.registerComponent('minecraft-controller', {
     },
 
     showPlacementFeedback: function (x, y, z) {
-        // Create temporary visual feedback for block placement
         const feedback = document.createElement('a-sphere');
         feedback.setAttribute('position', `${x} ${y} ${z}`);
         feedback.setAttribute('radius', '0.2');
         feedback.setAttribute('color', '#00FF00');
         feedback.setAttribute('opacity', '0.5');
-        
         this.el.sceneEl.appendChild(feedback);
-        
         setTimeout(() => {
             feedback.remove();
+            console.log('Scene entities after placement feedback:', this.el.sceneEl.querySelectorAll('*').length);
         }, 300);
     },
 
     showRemovalFeedback: function (x, y, z) {
-        // Create temporary visual feedback for block removal
         const feedback = document.createElement('a-sphere');
         feedback.setAttribute('position', `${x} ${y} ${z}`);
         feedback.setAttribute('radius', '0.3');
         feedback.setAttribute('color', '#FF0000');
         feedback.setAttribute('opacity', '0.5');
-        
         this.el.sceneEl.appendChild(feedback);
-        
         setTimeout(() => {
             feedback.remove();
+            console.log('Scene entities after removal feedback:', this.el.sceneEl.querySelectorAll('*').length);
         }, 300);
     },
 
     showBlockTypeChange: function () {
-        // Create temporary text to show selected block type
         const text = document.createElement('a-text');
         const cameraPos = this.el.sceneEl.querySelector('#head').getAttribute('position');
-        
         text.setAttribute('position', `${cameraPos.x} ${cameraPos.y + 0.5} ${cameraPos.z - 2}`);
         text.setAttribute('value', `Selected: ${BLOCK_TYPES[selectedBlockType].name}`);
         text.setAttribute('color', BLOCK_TYPES[selectedBlockType].color);
         text.setAttribute('align', 'center');
         text.setAttribute('scale', '2 2 2');
-        
         this.el.sceneEl.appendChild(text);
-        
         setTimeout(() => {
             text.remove();
         }, 1500);
@@ -196,11 +220,18 @@ AFRAME.registerComponent('minecraft-controller', {
 AFRAME.registerComponent('teleport-locomotion', {
     init: function () {
         this.cameraRig = document.querySelector('#cameraRig');
-        
+        if (!this.cameraRig) {
+            console.error('Camera rig not found');
+            return;
+        }
         this.el.addEventListener('thumbstickmoved', (evt) => {
-            const axes = evt.detail.axes;
-            if (Math.abs(axes[1]) > 0.8) { // Forward/backward movement
-                this.teleportMove(axes);
+            try {
+                const axes = evt.detail.axes;
+                if (Math.abs(axes[1]) > 0.8) {
+                    this.teleportMove(axes);
+                }
+            } catch (error) {
+                console.error('Error in thumbstickmoved:', error);
             }
         });
     },
@@ -209,12 +240,14 @@ AFRAME.registerComponent('teleport-locomotion', {
         const cameraRig = this.cameraRig;
         const currentPos = cameraRig.getAttribute('position');
         const camera = this.el.sceneEl.querySelector('#head');
+        if (!camera) {
+            console.error('Camera not found');
+            return;
+        }
         const cameraRotation = camera.getAttribute('rotation');
         
-        // Calculate movement direction based on camera rotation
-        const distance = 2; // Teleport distance
+        const distance = 2;
         const radians = (cameraRotation.y * Math.PI) / 180;
-        
         const deltaX = Math.sin(radians) * distance * (axes[1] > 0 ? -1 : 1);
         const deltaZ = Math.cos(radians) * distance * (axes[1] > 0 ? 1 : -1);
         
@@ -225,9 +258,8 @@ AFRAME.registerComponent('teleport-locomotion', {
         };
         
         cameraRig.setAttribute('position', newPos);
-        
-        // Visual feedback for teleportation
         this.showTeleportFeedback(newPos.x, newPos.y, newPos.z);
+        console.log('Teleported to:', newPos);
     },
 
     showTeleportFeedback: function (x, y, z) {
@@ -238,28 +270,12 @@ AFRAME.registerComponent('teleport-locomotion', {
         feedback.setAttribute('color', '#00FFFF');
         feedback.setAttribute('rotation', '-90 0 0');
         feedback.setAttribute('opacity', '0.7');
-        
         this.el.sceneEl.appendChild(feedback);
-        
         setTimeout(() => {
             feedback.remove();
+            console.log('Scene entities after teleport feedback:', this.el.sceneEl.querySelectorAll('*').length);
         }, 500);
     }
-});
-
-// Add teleport locomotion to controllers
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(() => {
-        const rightController = document.querySelector('#rightHand');
-        const leftController = document.querySelector('#leftHand');
-        
-        if (rightController) {
-            rightController.setAttribute('teleport-locomotion', '');
-        }
-        if (leftController) {
-            leftController.setAttribute('teleport-locomotion', '');
-        }
-    }, 1000);
 });
 
 // Initialize game state display
@@ -270,8 +286,22 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('- Grip: Remove block');
     console.log('- Thumbstick click: Cycle block types');
     console.log('- X/A button: Select grass');
-    console.log('- Y/B button: Select stone');  
+    console.log('- Y/B button: Select stone');
     console.log('- A button: Select wood');
     console.log('- B button: Select dirt');
     console.log('- Thumbstick forward/back: Teleport movement');
+
+    // Add teleport-locomotion to controllers
+    const rightController = document.querySelector('#rightHand');
+    const leftController = document.querySelector('#leftHand');
+    if (rightController) {
+        rightController.setAttribute('teleport-locomotion', '');
+    } else {
+        console.error('Right controller not found');
+    }
+    if (leftController) {
+        leftController.setAttribute('teleport-locomotion', '');
+    } else {
+        console.error('Left controller not found');
+    }
 });
