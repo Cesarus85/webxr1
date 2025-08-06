@@ -56,15 +56,19 @@
       <!-- Rechter Controller -->
       <a-entity id="right-hand"
                 hand-controls="hand: right"
-                raycaster="objects: .block; far: 5; showLine: false"
+                tracked-controls
+                raycaster="objects: .block; far: 5; showLine: true; direction: 0 0 -1"
                 laser-controls
-                line="color: red; opacity: 0.75"></a-entity>
+                line="color: red; opacity: 0.75"
+                rotation="-15 0 0"></a-entity>
       <!-- Linker Controller -->
       <a-entity id="left-hand"
-                hand-controls="hand: left"
-                raycaster="objects: .block; far: 5; showLine: false"
+                hand-controls="hand: left" 
+                tracked-controls
+                raycaster="objects: .block; far: 5; showLine: true; direction: 0 0 -1"
                 laser-controls
-                line="color: blue; opacity: 0.75"></a-entity>
+                line="color: blue; opacity: 0.75"
+                rotation="-15 0 0"></a-entity>
     </a-entity>
 
     <!-- Boden -->
@@ -108,54 +112,88 @@
         
         const dt = deltaTime / 1000; // Delta time in Sekunden
         
+        // Alternative Methode: WebXR Gamepads direkt abfragen
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        
         // Linker Controller für Bewegung (Thumbstick)
-        if (this.leftController.components['hand-controls'] && this.leftController.components['hand-controls'].gamepad) {
-          const gamepad = this.leftController.components['hand-controls'].gamepad;
-          
-          if (gamepad.axes && gamepad.axes.length >= 4) {
-            const xAxis = gamepad.axes[2]; // Thumbstick X
-            const yAxis = gamepad.axes[3]; // Thumbstick Y
-            
-            // Deadzone für Thumbstick
-            const deadzone = 0.15;
-            const moveX = Math.abs(xAxis) > deadzone ? xAxis : 0;
-            const moveZ = Math.abs(yAxis) > deadzone ? -yAxis : 0; // Negiert für natürliche Bewegung
-            
-            if (moveX !== 0 || moveZ !== 0) {
-              // Bewegung relativ zur Rig-Rotation (nicht Kamera)
-              const rigRotation = this.rig.object3D.rotation.y;
-              
-              // Berechne Bewegungsvektor in Weltkoordinaten
-              const forward = new THREE.Vector3(
-                Math.sin(rigRotation),
-                0,
-                Math.cos(rigRotation)
-              ).multiplyScalar(moveZ * this.moveSpeed * dt);
-              
-              const right = new THREE.Vector3(
-                Math.cos(rigRotation),
-                0,
-                -Math.sin(rigRotation)
-              ).multiplyScalar(moveX * this.moveSpeed * dt);
-              
-              const movement = forward.add(right);
-              this.rig.object3D.position.add(movement);
+        let leftGamepad = null;
+        let rightGamepad = null;
+        
+        // Versuche Gamepad über tracked-controls zu bekommen
+        if (this.leftController.components['tracked-controls']) {
+          leftGamepad = this.leftController.components['tracked-controls'].controller;
+        }
+        
+        if (this.rightController.components['tracked-controls']) {
+          rightGamepad = this.rightController.components['tracked-controls'].controller;
+        }
+        
+        // Fallback: Suche in allen Gamepads
+        if (!leftGamepad || !rightGamepad) {
+          for (let i = 0; i < gamepads.length; i++) {
+            const gamepad = gamepads[i];
+            if (gamepad && gamepad.hand) {
+              if (gamepad.hand === 'left' && !leftGamepad) {
+                leftGamepad = gamepad;
+              } else if (gamepad.hand === 'right' && !rightGamepad) {
+                rightGamepad = gamepad;
+              }
             }
           }
         }
         
-        // Rechter Controller für Rotation (Thumbstick)
-        if (this.rightController.components['hand-controls'] && this.rightController.components['hand-controls'].gamepad) {
-          const gamepad = this.rightController.components['hand-controls'].gamepad;
+        // Bewegung mit linkem Controller
+        if (leftGamepad && leftGamepad.axes && leftGamepad.axes.length >= 4) {
+          const xAxis = leftGamepad.axes[2]; // Thumbstick X
+          const yAxis = leftGamepad.axes[3]; // Thumbstick Y
           
-          if (gamepad.axes && gamepad.axes.length >= 4) {
-            const rotateX = gamepad.axes[2]; // Thumbstick X für Rotation
+          // Deadzone für Thumbstick
+          const deadzone = 0.15;
+          const moveX = Math.abs(xAxis) > deadzone ? xAxis : 0;
+          const moveZ = Math.abs(yAxis) > deadzone ? -yAxis : 0; // Negiert für natürliche Bewegung
+          
+          if (moveX !== 0 || moveZ !== 0) {
+            // Bewegung relativ zur Rig-Rotation
+            const rigRotation = this.rig.object3D.rotation.y;
             
-            // Deadzone für Rotation
-            const deadzone = 0.15;
-            if (Math.abs(rotateX) > deadzone) {
-              this.rig.object3D.rotation.y -= rotateX * this.rotationSpeed * dt;
-            }
+            // Berechne Bewegungsvektor in Weltkoordinaten
+            const forward = new THREE.Vector3(
+              Math.sin(rigRotation),
+              0,
+              Math.cos(rigRotation)
+            ).multiplyScalar(moveZ * this.moveSpeed * dt);
+            
+            const right = new THREE.Vector3(
+              Math.cos(rigRotation),
+              0,
+              -Math.sin(rigRotation)
+            ).multiplyScalar(moveX * this.moveSpeed * dt);
+            
+            const movement = forward.add(right);
+            this.rig.object3D.position.add(movement);
+          }
+        }
+        
+        // Rotation mit rechtem Controller
+        if (rightGamepad && rightGamepad.axes && rightGamepad.axes.length >= 4) {
+          const rotateX = rightGamepad.axes[2]; // Thumbstick X für Rotation
+          
+          // Deadzone für Rotation
+          const deadzone = 0.15;
+          if (Math.abs(rotateX) > deadzone) {
+            this.rig.object3D.rotation.y -= rotateX * this.rotationSpeed * dt;
+          }
+        }
+        
+        // Debug: Log gamepad status (entfernen nach dem Test)
+        if (time % 1000 < 16) { // Nur einmal pro Sekunde loggen
+          console.log('Left gamepad:', leftGamepad ? 'found' : 'not found');
+          console.log('Right gamepad:', rightGamepad ? 'found' : 'not found');
+          if (leftGamepad && leftGamepad.axes) {
+            console.log('Left axes:', leftGamepad.axes.slice(2, 4));
+          }
+          if (rightGamepad && rightGamepad.axes) {
+            console.log('Right axes:', rightGamepad.axes.slice(2, 4));
           }
         }
       }
