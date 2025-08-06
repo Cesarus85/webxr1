@@ -105,11 +105,32 @@
       ground.receiveShadow = true;
       scene.add(ground);
 
-      // Einfache Welt mit Hügeln und Steinen generieren
+      // Einfache Welt mit Hügeln und Steinen generieren - mit freier Mitte
       for (let x = 0; x < worldSize; x++) {
         for (let z = 0; z < worldSize; z++) {
+          // Freie Fläche in der Mitte (5x5 Bereich um Position 8,8 - wo der Spieler startet)
+          const centerX = 8;
+          const centerZ = 8;
+          const distanceFromCenter = Math.sqrt((x - centerX) ** 2 + (z - centerZ) ** 2);
+          
+          // Keine Blöcke in einem Radius von 3 um das Zentrum
+          if (distanceFromCenter < 3) {
+            continue;
+          }
+          
+          // Weniger dichte Bebauung in mittlerem Bereich (Radius 3-6)
+          if (distanceFromCenter < 6 && Math.random() > 0.3) {
+            continue;
+          }
+          
           // Höhere Variation für interessantere Landschaft
-          const height = Math.floor(Math.random() * 4) + 1; // Zufällige Höhe (1-4 Blöcke)
+          let height;
+          if (distanceFromCenter < 8) {
+            height = Math.floor(Math.random() * 2) + 1; // Niedrigere Strukturen näher zur Mitte (1-2 Blöcke)
+          } else {
+            height = Math.floor(Math.random() * 4) + 1; // Höhere Strukturen am Rand (1-4 Blöcke)
+          }
+          
           for (let y = 0; y < height; y++) {
             let material;
             if (y === height - 1 && height <= 2) {
@@ -142,17 +163,61 @@
         });
       }
 
+      // Kollisionsprüfung für den Spieler
+      function checkCollision(position) {
+        const playerRadius = 0.3; // Spieler-Radius
+        const playerHeight = 1.8; // Spieler-Höhe
+        
+        // Prüfe Kollision mit allen Blöcken in der Nähe
+        for (const key in blocks) {
+          const block = blocks[key];
+          const blockPos = block.position;
+          
+          // Distanz zwischen Spieler und Block berechnen (nur X und Z)
+          const dx = Math.abs(position.x - blockPos.x);
+          const dz = Math.abs(position.z - blockPos.z);
+          const dy = position.y - blockPos.y;
+          
+          // Kollisionsprüfung (Box-zu-Zylinder-Kollision vereinfacht)
+          if (dx < (0.5 + playerRadius) && 
+              dz < (0.5 + playerRadius) && 
+              dy < playerHeight && 
+              dy > -0.5) {
+            return true; // Kollision erkannt
+          }
+        }
+        return false; // Keine Kollision
+      }
+
       // Sprung-Physik verarbeiten
       function updateJump() {
         if (isJumping) {
-          player.position.y += jumpVelocity;
+          const newY = player.position.y + jumpVelocity;
           jumpVelocity -= gravity;
           
-          // Kollision mit Boden prüfen
-          if (player.position.y <= 2) { // Spieler-Grundhöhe
-            player.position.y = 2;
+          // Prüfe Kollision nach oben/unten
+          const testPosition = player.position.clone();
+          testPosition.y = newY;
+          
+          if (!checkCollision(testPosition) && newY > 0.1) {
+            player.position.y = newY;
+          } else {
+            // Bei Kollision oder Boden: Sprung beenden
+            if (newY <= 2) {
+              player.position.y = 2; // Mindesthöhe über Boden
+            }
             isJumping = false;
             jumpVelocity = 0;
+          }
+        } else {
+          // Schwerkraft anwenden wenn nicht auf festem Boden
+          const testPosition = player.position.clone();
+          testPosition.y -= 0.05;
+          
+          if (!checkCollision(testPosition) && player.position.y > 2) {
+            player.position.y -= 0.05; // Fallen
+          } else {
+            player.position.y = Math.max(2, player.position.y); // Mindesthöhe
           }
         }
       }
@@ -174,11 +239,10 @@
                 const deadzone = 0.1;
 
                 if (Math.abs(xAxis) > deadzone || Math.abs(yAxis) > deadzone) {
-                  // Feste Weltrichtungen verwenden statt Kamera-Rotation
-                  const forward = new THREE.Vector3(0, 0, -1); // Nord
-                  const right = new THREE.Vector3(1, 0, 0);    // Ost
+                  // Berechne neue Position für Kollisionsprüfung
+                  const forward = new THREE.Vector3(0, 0, -1);
+                  const right = new THREE.Vector3(1, 0, 0);
                   
-                  // Bewegung relativ zur Spieler-Rotation, nicht Kamera
                   forward.applyQuaternion(player.quaternion);
                   right.applyQuaternion(player.quaternion);
                   
@@ -187,23 +251,26 @@
                   forward.normalize();
                   right.normalize();
 
-                  player.position.addScaledVector(forward, -yAxis * moveSpeed);
-                  player.position.addScaledVector(right, xAxis * moveSpeed);
+                  const newPosition = player.position.clone();
+                  newPosition.addScaledVector(forward, -yAxis * moveSpeed);
+                  newPosition.addScaledVector(right, xAxis * moveSpeed);
+                  
+                  // Kollisionsprüfung vor der Bewegung
+                  if (!checkCollision(newPosition)) {
+                    player.position.copy(newPosition);
+                  }
                 }
 
-                // A-Taste für Sprung
-                if (buttons[4]?.pressed && !isJumping) { // A-Taste
-                  isJumping = true;
-                  jumpVelocity = jumpSpeed;
-                }
-
-                // Trigger für Block platzieren
-                if (buttons[0]?.pressed) {
+                // Trigger für Block platzieren (mit Zustandsverfolgung)
+                if (buttons[0]?.pressed && !leftTriggerPressed) {
+                  leftTriggerPressed = true;
                   placeBlock(source);
+                } else if (!buttons[0]?.pressed) {
+                  leftTriggerPressed = false;
                 }
               }
 
-              // Rechter Controller: Drehung und Block abbauen
+              // Rechter Controller: Drehung, Sprung und Block abbauen
               if (handedness === 'right') {
                 const xAxis = axes[2] || 0; // Horizontale Achse
                 const deadzone = 0.1;
@@ -212,9 +279,18 @@
                   player.rotation.y -= xAxis * rotationSpeed;
                 }
 
-                // Trigger für Block abbauen
-                if (buttons[0]?.pressed) {
+                // A-Taste für Sprung (auf rechtem Controller)
+                if (buttons[4]?.pressed && !isJumping) { // A-Taste
+                  isJumping = true;
+                  jumpVelocity = jumpSpeed;
+                }
+
+                // Trigger für Block abbauen (mit Zustandsverfolgung)
+                if (buttons[0]?.pressed && !rightTriggerPressed) {
+                  rightTriggerPressed = true;
                   removeBlock(source);
+                } else if (!buttons[0]?.pressed) {
+                  rightTriggerPressed = false;
                 }
               }
             }
@@ -225,48 +301,60 @@
         updateJump();
       }
 
-      // Block platzieren
+      // Trigger-Zustand verfolgen für Debouncing
+      let leftTriggerPressed = false;
+      let rightTriggerPressed = false;
       let lastPlaceTime = 0;
+      let lastRemoveTime = 0;
+
+      // Block platzieren
       function placeBlock(source) {
         const now = Date.now();
-        if (now - lastPlaceTime < 300) return; // Verhindert zu schnelles Platzieren
+        if (now - lastPlaceTime < 500) return; // Längeres Debouncing
         lastPlaceTime = now;
         
-        raycaster.setFromXRController(source);
-        const intersects = raycaster.intersectObjects(Object.values(blocks), true);
-        if (intersects.length > 0) {
-          const intersect = intersects[0];
-          const normal = intersect.face.normal.clone();
-          const position = intersect.object.position.clone();
-          const newPosition = position.add(normal);
+        try {
+          raycaster.setFromXRController(source);
+          const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+          if (intersects.length > 0) {
+            const intersect = intersects[0];
+            const normal = intersect.face.normal.clone();
+            const position = intersect.object.position.clone();
+            const newPosition = position.add(normal);
 
-          const key = `${Math.round(newPosition.x)},${Math.round(newPosition.y)},${Math.round(newPosition.z)}`;
-          if (!blocks[key] && newPosition.y >= 0) {
-            const block = new THREE.Mesh(blockGeometry, stoneMaterial);
-            block.position.set(Math.round(newPosition.x), Math.round(newPosition.y), Math.round(newPosition.z));
-            block.castShadow = true;
-            block.receiveShadow = true;
-            scene.add(block);
-            blocks[key] = block;
+            const key = `${Math.round(newPosition.x)},${Math.round(newPosition.y)},${Math.round(newPosition.z)}`;
+            if (!blocks[key] && newPosition.y >= 0) {
+              const block = new THREE.Mesh(blockGeometry, stoneMaterial);
+              block.position.set(Math.round(newPosition.x), Math.round(newPosition.y), Math.round(newPosition.z));
+              block.castShadow = true;
+              block.receiveShadow = true;
+              scene.add(block);
+              blocks[key] = block;
+            }
           }
+        } catch (error) {
+          console.warn('Fehler beim Platzieren des Blocks:', error);
         }
       }
 
       // Block abbauen
-      let lastRemoveTime = 0;
       function removeBlock(source) {
         const now = Date.now();
-        if (now - lastRemoveTime < 300) return; // Verhindert zu schnelles Abbauen
+        if (now - lastRemoveTime < 500) return; // Längeres Debouncing
         lastRemoveTime = now;
         
-        raycaster.setFromXRController(source);
-        const intersects = raycaster.intersectObjects(Object.values(blocks), true);
-        if (intersects.length > 0) {
-          const intersect = intersects[0];
-          const block = intersect.object;
-          const key = `${block.position.x},${block.position.y},${block.position.z}`;
-          scene.remove(block);
-          delete blocks[key];
+        try {
+          raycaster.setFromXRController(source);
+          const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+          if (intersects.length > 0) {
+            const intersect = intersects[0];
+            const block = intersect.object;
+            const key = `${block.position.x},${block.position.y},${block.position.z}`;
+            scene.remove(block);
+            delete blocks[key];
+          }
+        } catch (error) {
+          console.warn('Fehler beim Abbauen des Blocks:', error);
         }
       }
 
