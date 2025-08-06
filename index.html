@@ -38,6 +38,7 @@
     scene.background = new THREE.Color(0x88ccee);
 
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 3); // Starte etwas über dem Boden und leicht zurückgesetzt
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -71,10 +72,10 @@
       world.set(id, cube);
     }
 
-    // Boden generieren
+    // Boden generieren (eine Ebene tiefer, damit man nicht im Block spawnt)
     for (let x = -15; x <= 15; x++) {
       for (let z = -15; z <= 15; z++) {
-        placeBlock(x, -1, z, 0x8ecc5b);
+        placeBlock(x, -2, z, 0x8ecc5b);
       }
     }
 
@@ -117,17 +118,22 @@
     // ----- Locomotion -------------------------------------------------
     const walkSpeed = 3; // Meter pro Sekunde
 
+    // Wir bewegen die "Spieler‑Rig", also eine Gruppe, statt direkt die Kamera
+    const player = new THREE.Group();
+    scene.add(player);
+    player.add(camera);
+
     function handleGamepad() {
       const session = renderer.xr.getSession();
       if (!session) return;
       session.inputSources.forEach((source) => {
         if (source.handedness === 'left' && source.gamepad) {
-          const [x, y] = source.gamepad.axes; // Quest: x = horizontal, y = vertical
+          const [x, y] = source.gamepad.axes;
           const dead = 0.15;
           if (Math.abs(x) > dead || Math.abs(y) > dead) {
             const dir = new THREE.Vector3(-x, 0, -y).normalize();
             dir.applyQuaternion(camera.quaternion);
-            camera.position.addScaledVector(dir, walkSpeed * 0.01); // frame‑abhängig ≈ 10 ms
+            player.position.addScaledVector(dir, walkSpeed * 0.01); // frame‑abhängig ≈ 10 ms
           }
         }
       });
