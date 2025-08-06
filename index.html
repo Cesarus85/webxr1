@@ -106,18 +106,24 @@
         wrist.position.set(0, -0.09, 0);
         hand.add(wrist);
         
-        // Hand leicht rotieren für natürlichere Haltung
-        hand.rotation.x = -0.3;
+        // Hand korrekt orientieren: Handfläche zeigt nach unten, Finger nach vorne
+        hand.rotation.x = Math.PI / 2; // 90 Grad um X-Achse
+        if (isRightHand) {
+          hand.rotation.z = -Math.PI / 6; // Leichte Neigung nach außen
+        } else {
+          hand.rotation.z = Math.PI / 6; // Leichte Neigung nach außen
+        }
         
         return hand;
       }
       
-      const leftHand = createHand(false);
+      // WICHTIG: Controller-Zuordnung korrigieren
       const rightHand = createHand(true);
+      const leftHand = createHand(false);
       player.add(controller1);
       player.add(controller2);
-      controller1.add(leftHand);
-      controller2.add(rightHand);
+      controller1.add(rightHand); // Controller 0 = rechte Hand
+      controller2.add(leftHand);  // Controller 1 = linke Hand
 
       // Bewegungs- und Rotationsgeschwindigkeit
       const moveSpeed = 0.1;
@@ -292,8 +298,8 @@
               const buttons = source.gamepad.buttons;
               const handedness = source.handedness;
 
-              // Linker Controller: Bewegung
-              if (handedness === 'left') {
+              // Rechter Controller: Bewegung (Controller 0)
+              if (handedness === 'right') {
                 const xAxis = axes[2] || 0; // Horizontale Achse
                 const yAxis = axes[3] || 0; // Vertikale Achse
                 const deadzone = 0.1;
@@ -322,16 +328,16 @@
                 }
 
                 // Trigger für Block abbauen (mit Zustandsverfolgung)
-                if (buttons[0]?.pressed && !leftTriggerPressed) {
-                  leftTriggerPressed = true;
+                if (buttons[0]?.pressed && !rightTriggerPressed) {
+                  rightTriggerPressed = true;
                   removeBlock(source);
                 } else if (!buttons[0]?.pressed) {
-                  leftTriggerPressed = false;
+                  rightTriggerPressed = false;
                 }
               }
 
-              // Rechter Controller: Drehung, Sprung und Block bauen
-              if (handedness === 'right') {
+              // Linker Controller: Drehung, Sprung und Block bauen (Controller 1)
+              if (handedness === 'left') {
                 const xAxis = axes[2] || 0; // Horizontale Achse
                 const deadzone = 0.1;
 
@@ -346,11 +352,11 @@
                 }
 
                 // Trigger für Block bauen (mit Zustandsverfolgung)
-                if (buttons[0]?.pressed && !rightTriggerPressed) {
-                  rightTriggerPressed = true;
+                if (buttons[0]?.pressed && !leftTriggerPressed) {
+                  leftTriggerPressed = true;
                   placeBlock(source);
                 } else if (!buttons[0]?.pressed) {
-                  rightTriggerPressed = false;
+                  leftTriggerPressed = false;
                 }
               }
             }
@@ -367,34 +373,51 @@
       let lastPlaceTime = 0;
       let lastRemoveTime = 0;
 
-      // Block platzieren
+      // Block platzieren - Verbesserter Raycast
       function placeBlock(source) {
         const now = Date.now();
-        if (now - lastPlaceTime < 500) return; // Längeres Debouncing
+        if (now - lastPlaceTime < 500) return;
         lastPlaceTime = now;
         
         try {
-          // Erstelle Raycaster vom Controller aus
-          const controller = source.handedness === 'right' ? controller2 : controller1;
-          const tempMatrix = new THREE.Matrix4();
-          tempMatrix.identity().extractRotation(controller.matrixWorld);
+          // Korrigierte Controller-Zuordnung
+          const controller = source.handedness === 'left' ? controller2 : controller1;
           
+          // Präziser Raycast vom Controller aus
+          const controllerMatrix = new THREE.Matrix4();
+          controllerMatrix.copy(controller.matrixWorld);
+          
+          const rayOrigin = new THREE.Vector3();
           const rayDirection = new THREE.Vector3(0, 0, -1);
-          rayDirection.applyMatrix4(tempMatrix);
           
-          raycaster.set(controller.position, rayDirection);
-          const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+          // Controller-Position und -Richtung extrahieren
+          rayOrigin.setFromMatrixPosition(controllerMatrix);
+          rayDirection.transformDirection(controllerMatrix);
+          
+          raycaster.set(rayOrigin, rayDirection);
+          
+          // Raycast mit allen Objekten und dem Boden
+          const allObjects = [...Object.values(blocks)];
+          const intersects = raycaster.intersectObjects(allObjects, false);
           
           if (intersects.length > 0) {
             const intersect = intersects[0];
             const normal = intersect.face.normal.clone();
-            const position = intersect.object.position.clone();
-            const newPosition = position.add(normal);
-
-            const key = `${Math.round(newPosition.x)},${Math.round(newPosition.y)},${Math.round(newPosition.z)}`;
-            if (!blocks[key] && newPosition.y >= 0) {
+            const hitPoint = intersect.point;
+            
+            // Block an der Stelle platzieren, wo der Raycast auf eine Oberfläche trifft
+            const blockPosition = hitPoint.clone().add(normal.multiplyScalar(0.5));
+            
+            // Auf Block-Grid snappen
+            blockPosition.x = Math.round(blockPosition.x);
+            blockPosition.y = Math.round(blockPosition.y);
+            blockPosition.z = Math.round(blockPosition.z);
+            
+            const key = `${blockPosition.x},${blockPosition.y},${blockPosition.z}`;
+            
+            if (!blocks[key] && blockPosition.y >= 0) {
               const block = new THREE.Mesh(blockGeometry, stoneMaterial);
-              block.position.set(Math.round(newPosition.x), Math.round(newPosition.y), Math.round(newPosition.z));
+              block.position.copy(blockPosition);
               block.castShadow = true;
               block.receiveShadow = true;
               scene.add(block);
@@ -402,16 +425,19 @@
               console.log('Block platziert bei:', key);
             }
           } else {
-            // Fallback: Platziere Block vor dem Spieler
-            const playerForward = new THREE.Vector3(0, 0, -1);
-            playerForward.applyQuaternion(player.quaternion);
-            const newPos = player.position.clone().add(playerForward.multiplyScalar(2));
-            newPos.y = Math.floor(newPos.y) + 0.5; // Auf Blockgrid snappen
+            // Fallback: Block in fester Entfernung vor Controller platzieren
+            const blockPosition = rayOrigin.clone().add(rayDirection.multiplyScalar(3));
             
-            const key = `${Math.round(newPos.x)},${Math.round(newPos.y)},${Math.round(newPos.z)}`;
-            if (!blocks[key] && newPos.y >= 0) {
+            // Auf Block-Grid und Bodenhöhe snappen
+            blockPosition.x = Math.round(blockPosition.x);
+            blockPosition.y = Math.max(1, Math.round(blockPosition.y));
+            blockPosition.z = Math.round(blockPosition.z);
+            
+            const key = `${blockPosition.x},${blockPosition.y},${blockPosition.z}`;
+            
+            if (!blocks[key]) {
               const block = new THREE.Mesh(blockGeometry, stoneMaterial);
-              block.position.set(Math.round(newPos.x), Math.round(newPos.y), Math.round(newPos.z));
+              block.position.copy(blockPosition);
               block.castShadow = true;
               block.receiveShadow = true;
               scene.add(block);
@@ -424,23 +450,29 @@
         }
       }
 
-      // Block abbauen
+      // Block abbauen - Verbesserter Raycast
       function removeBlock(source) {
         const now = Date.now();
-        if (now - lastRemoveTime < 500) return; // Längeres Debouncing
+        if (now - lastRemoveTime < 500) return;
         lastRemoveTime = now;
         
         try {
-          // Erstelle Raycaster vom Controller aus
-          const controller = source.handedness === 'left' ? controller1 : controller2;
-          const tempMatrix = new THREE.Matrix4();
-          tempMatrix.identity().extractRotation(controller.matrixWorld);
+          // Korrigierte Controller-Zuordnung
+          const controller = source.handedness === 'right' ? controller1 : controller2;
           
+          // Präziser Raycast vom Controller aus
+          const controllerMatrix = new THREE.Matrix4();
+          controllerMatrix.copy(controller.matrixWorld);
+          
+          const rayOrigin = new THREE.Vector3();
           const rayDirection = new THREE.Vector3(0, 0, -1);
-          rayDirection.applyMatrix4(tempMatrix);
           
-          raycaster.set(controller.position, rayDirection);
-          const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+          // Controller-Position und -Richtung extrahieren
+          rayOrigin.setFromMatrixPosition(controllerMatrix);
+          rayDirection.transformDirection(controllerMatrix);
+          
+          raycaster.set(rayOrigin, rayDirection);
+          const intersects = raycaster.intersectObjects(Object.values(blocks), false);
           
           if (intersects.length > 0) {
             const intersect = intersects[0];
