@@ -33,7 +33,7 @@
         0.1,
         1000
       );
-      camera.position.set(0, 1.6, 0); // Spielerhöhe auf Augenhöhe
+      camera.position.set(0, 0.8, 0); // Spielerhöhe auf 2 Blöcke (0.8 über Boden)
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
@@ -64,7 +64,7 @@
       const player = new THREE.Group();
       player.add(camera);
       scene.add(player);
-      player.position.set(8, 1.6, 8); // Startposition näher zum Boden
+      player.position.set(8, 1.0, 8); // Startposition für 2-Block-Höhe
 
       // Controller initialisieren
       const controller1 = renderer.xr.getController(0); // Linker Controller
@@ -114,6 +114,8 @@
       
       const leftHand = createHand(false);
       const rightHand = createHand(true);
+      player.add(controller1);
+      player.add(controller2);
       controller1.add(leftHand);
       controller2.add(rightHand);
 
@@ -203,7 +205,7 @@
       // Kollisionsprüfung für den Spieler
       function checkCollision(position) {
         const playerRadius = 0.3; // Spieler-Radius
-        const playerHeight = 1.6; // Spieler-Höhe (angepasst)
+        const playerHeight = 1.0; // Spieler-Höhe (2 Blöcke = 2.0, aber nur 1.0 über dem Fuß)
         
         // Prüfe Kollision mit allen Blöcken in der Nähe
         for (const key in blocks) {
@@ -252,7 +254,7 @@
       // Sprung-Physik verarbeiten
       function updateJump() {
         const groundHeight = getGroundHeight(player.position.x, player.position.z);
-        const targetHeight = groundHeight + 1.6; // Spielerhöhe über dem Boden/Block
+        const targetHeight = groundHeight + 1.0; // Spielerhöhe über dem Boden/Block (2 Blöcke hoch)
         
         if (isJumping) {
           const newY = player.position.y + jumpVelocity;
@@ -372,8 +374,17 @@
         lastPlaceTime = now;
         
         try {
-          raycaster.setFromXRController(source);
+          // Erstelle Raycaster vom Controller aus
+          const controller = source.handedness === 'right' ? controller2 : controller1;
+          const tempMatrix = new THREE.Matrix4();
+          tempMatrix.identity().extractRotation(controller.matrixWorld);
+          
+          const rayDirection = new THREE.Vector3(0, 0, -1);
+          rayDirection.applyMatrix4(tempMatrix);
+          
+          raycaster.set(controller.position, rayDirection);
           const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+          
           if (intersects.length > 0) {
             const intersect = intersects[0];
             const normal = intersect.face.normal.clone();
@@ -388,6 +399,24 @@
               block.receiveShadow = true;
               scene.add(block);
               blocks[key] = block;
+              console.log('Block platziert bei:', key);
+            }
+          } else {
+            // Fallback: Platziere Block vor dem Spieler
+            const playerForward = new THREE.Vector3(0, 0, -1);
+            playerForward.applyQuaternion(player.quaternion);
+            const newPos = player.position.clone().add(playerForward.multiplyScalar(2));
+            newPos.y = Math.floor(newPos.y) + 0.5; // Auf Blockgrid snappen
+            
+            const key = `${Math.round(newPos.x)},${Math.round(newPos.y)},${Math.round(newPos.z)}`;
+            if (!blocks[key] && newPos.y >= 0) {
+              const block = new THREE.Mesh(blockGeometry, stoneMaterial);
+              block.position.set(Math.round(newPos.x), Math.round(newPos.y), Math.round(newPos.z));
+              block.castShadow = true;
+              block.receiveShadow = true;
+              scene.add(block);
+              blocks[key] = block;
+              console.log('Block (Fallback) platziert bei:', key);
             }
           }
         } catch (error) {
@@ -402,14 +431,24 @@
         lastRemoveTime = now;
         
         try {
-          raycaster.setFromXRController(source);
+          // Erstelle Raycaster vom Controller aus
+          const controller = source.handedness === 'left' ? controller1 : controller2;
+          const tempMatrix = new THREE.Matrix4();
+          tempMatrix.identity().extractRotation(controller.matrixWorld);
+          
+          const rayDirection = new THREE.Vector3(0, 0, -1);
+          rayDirection.applyMatrix4(tempMatrix);
+          
+          raycaster.set(controller.position, rayDirection);
           const intersects = raycaster.intersectObjects(Object.values(blocks), true);
+          
           if (intersects.length > 0) {
             const intersect = intersects[0];
             const block = intersect.object;
             const key = `${block.position.x},${block.position.y},${block.position.z}`;
             scene.remove(block);
             delete blocks[key];
+            console.log('Block entfernt bei:', key);
           }
         } catch (error) {
           console.warn('Fehler beim Abbauen des Blocks:', error);
