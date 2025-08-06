@@ -78,50 +78,96 @@
     // Benutzerdefinierte Komponente für Quest 3 Controller-Bewegung
     AFRAME.registerComponent('quest-controller-movement', {
       init: function () {
-        this.speed = 0.1; // Bewegungsgeschwindigkeit
-        this.leftController = document.querySelector('#left-hand');
-        this.rightController = document.querySelector('#right-hand');
+        this.moveSpeed = 3.0; // Bewegungsgeschwindigkeit (m/s)
+        this.rotationSpeed = 2.0; // Rotationsgeschwindigkeit (rad/s)
         this.rig = this.el;
         this.camera = this.rig.querySelector('a-camera');
-
-        // Sicherstellen, dass Controller im VR-Modus erkannt werden
-        this.el.sceneEl.addEventListener('enter-vr', () => {
-          this.controllersReady = true;
-        });
+        this.controllers = [];
+        
+        // Warte auf Controller-Initialisierung
+        setTimeout(() => {
+          this.leftController = document.querySelector('#left-hand');
+          this.rightController = document.querySelector('#right-hand');
+        }, 1000);
       },
 
       tick: function (time, deltaTime) {
-        if (!this.controllersReady) return;
-
-        // Zugriff auf Oculus-Controller-Daten
-        const gamepad = this.leftController.components['hand-controls'].controller;
-        if (!gamepad) return;
-
-        // Daumenstick-Daten (x: links/rechts, y: vorwärts/rückwärts)
-        const [xAxis, yAxis] = gamepad.axes; // Quest 3: Achsen 2 und 3 für Daumenstick
-        const moveVector = new THREE.Vector3(xAxis, 0, -yAxis).multiplyScalar(this.speed * deltaTime / 1000);
-
-        // Bewegung relativ zur Kamerarotation
-        const cameraDirection = new THREE.Vector3();
-        this.camera.object3D.getWorldDirection(cameraDirection);
-        cameraDirection.y = 0; // Nur horizontale Bewegung
-        cameraDirection.normalize();
-
-        // Berechne Bewegung in Weltkoordinaten
-        const forward = cameraDirection.clone().multiplyScalar(moveVector.z);
-        const right = cameraDirection.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2).multiplyScalar(moveVector.x);
-        const move = forward.add(right);
-
-        // Aktualisiere Rig-Position
-        this.rig.object3D.position.add(move);
-
-        // Rotation mit rechtem Daumenstick
-        const rightGamepad = this.rightController.components['hand-controls'].controller;
-        if (rightGamepad) {
-          const [rxAxis] = rightGamepad.axes.slice(2); // Rechter Stick, x-Achse
-          const rotationSpeed = 0.05;
-          this.rig.object3D.rotation.y -= rxAxis * rotationSpeed * deltaTime / 1000;
+        if (!this.leftController || !this.rightController) return;
+        
+        const dt = deltaTime / 1000; // Delta time in Sekunden
+        
+        // Linker Controller für Bewegung (Thumbstick)
+        const leftGamepad = this.getGamepad(this.leftController);
+        if (leftGamepad && leftGamepad.axes.length >= 4) {
+          const xAxis = leftGamepad.axes[2]; // Thumbstick X
+          const yAxis = leftGamepad.axes[3]; // Thumbstick Y
+          
+          // Deadzone für Thumbstick
+          const deadzone = 0.1;
+          const moveX = Math.abs(xAxis) > deadzone ? xAxis : 0;
+          const moveZ = Math.abs(yAxis) > deadzone ? -yAxis : 0; // Negiert für natürliche Bewegung
+          
+          if (moveX !== 0 || moveZ !== 0) {
+            // Bewegung relativ zur Kamera-Rotation
+            const cameraRotation = this.camera.object3D.rotation.y;
+            
+            // Berechne Bewegungsvektor in Weltkoordinaten
+            const forward = new THREE.Vector3(
+              Math.sin(cameraRotation),
+              0,
+              Math.cos(cameraRotation)
+            ).multiplyScalar(moveZ * this.moveSpeed * dt);
+            
+            const right = new THREE.Vector3(
+              Math.cos(cameraRotation),
+              0,
+              -Math.sin(cameraRotation)
+            ).multiplyScalar(moveX * this.moveSpeed * dt);
+            
+            const movement = forward.add(right);
+            this.rig.object3D.position.add(movement);
+          }
         }
+        
+        // Rechter Controller für Rotation (Thumbstick)
+        const rightGamepad = this.getGamepad(this.rightController);
+        if (rightGamepad && rightGamepad.axes.length >= 4) {
+          const rotateX = rightGamepad.axes[2]; // Thumbstick X für Rotation
+          
+          // Deadzone für Rotation
+          const deadzone = 0.1;
+          if (Math.abs(rotateX) > deadzone) {
+            this.rig.object3D.rotation.y -= rotateX * this.rotationSpeed * dt;
+          }
+        }
+      },
+      
+      getGamepad: function(controller) {
+        if (!controller || !controller.components || !controller.components['hand-controls']) {
+          return null;
+        }
+        
+        const handControls = controller.components['hand-controls'];
+        
+        // Versuche verschiedene Wege, das Gamepad zu bekommen
+        if (handControls.controller) {
+          return handControls.controller;
+        }
+        
+        if (handControls.gamepad) {
+          return handControls.gamepad;
+        }
+        
+        // Fallback: Direkt über WebXR Gamepads
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        for (let i = 0; i < gamepads.length; i++) {
+          const gamepad = gamepads[i];
+          if (gamepad && gamepad.id.toLowerCase().includes('oculus')) {
+            return gamepad;
+          }
+        }
+        
+        return null;
       }
     });
 
