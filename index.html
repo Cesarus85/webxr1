@@ -64,7 +64,7 @@
       const player = new THREE.Group();
       player.add(camera);
       scene.add(player);
-      player.position.set(8, 2, 8); // Startposition über dem Boden
+      player.position.set(8, 1.6, 8); // Startposition näher zum Boden
 
       // Controller initialisieren
       const controller1 = renderer.xr.getController(0); // Linker Controller
@@ -72,13 +72,50 @@
       scene.add(controller1);
       scene.add(controller2);
 
-      // Controller-Modelle (für visuelles Feedback)
-      const controllerGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-      const controllerMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
-      const controllerMesh1 = new THREE.Mesh(controllerGeometry, controllerMaterial);
-      const controllerMesh2 = new THREE.Mesh(controllerGeometry, controllerMaterial);
-      controller1.add(controllerMesh1);
-      controller2.add(controllerMesh2);
+      // Hand-Modelle für die Controller
+      function createHand(isRightHand = true) {
+        const hand = new THREE.Group();
+        
+        // Handfläche
+        const palmGeometry = new THREE.BoxGeometry(0.08, 0.12, 0.03);
+        const handMaterial = new THREE.MeshStandardMaterial({ color: 0xFFDBB3 }); // Hautfarbe
+        const palm = new THREE.Mesh(palmGeometry, handMaterial);
+        palm.position.set(0, 0, 0);
+        hand.add(palm);
+        
+        // Finger erstellen
+        const fingerGeometry = new THREE.CylinderGeometry(0.008, 0.012, 0.04, 8);
+        
+        // Daumen
+        const thumb = new THREE.Mesh(fingerGeometry, handMaterial);
+        thumb.position.set(isRightHand ? -0.03 : 0.03, -0.02, 0.02);
+        thumb.rotation.z = isRightHand ? -0.5 : 0.5;
+        hand.add(thumb);
+        
+        // Finger (Zeige-, Mittel-, Ring-, kleiner Finger)
+        for (let i = 0; i < 4; i++) {
+          const finger = new THREE.Mesh(fingerGeometry, handMaterial);
+          const xOffset = (i - 1.5) * 0.015;
+          finger.position.set(xOffset, 0.08, 0);
+          hand.add(finger);
+        }
+        
+        // Handgelenk
+        const wristGeometry = new THREE.CylinderGeometry(0.025, 0.03, 0.06, 12);
+        const wrist = new THREE.Mesh(wristGeometry, handMaterial);
+        wrist.position.set(0, -0.09, 0);
+        hand.add(wrist);
+        
+        // Hand leicht rotieren für natürlichere Haltung
+        hand.rotation.x = -0.3;
+        
+        return hand;
+      }
+      
+      const leftHand = createHand(false);
+      const rightHand = createHand(true);
+      controller1.add(leftHand);
+      controller2.add(rightHand);
 
       // Bewegungs- und Rotationsgeschwindigkeit
       const moveSpeed = 0.1;
@@ -166,7 +203,7 @@
       // Kollisionsprüfung für den Spieler
       function checkCollision(position) {
         const playerRadius = 0.3; // Spieler-Radius
-        const playerHeight = 1.8; // Spieler-Höhe
+        const playerHeight = 1.6; // Spieler-Höhe (angepasst)
         
         // Prüfe Kollision mit allen Blöcken in der Nähe
         for (const key in blocks) {
@@ -176,21 +213,47 @@
           // Distanz zwischen Spieler und Block berechnen (nur X und Z)
           const dx = Math.abs(position.x - blockPos.x);
           const dz = Math.abs(position.z - blockPos.z);
-          const dy = position.y - blockPos.y;
+          const dy = position.y - (blockPos.y + 0.5); // Block-Oberkante berücksichtigen
           
           // Kollisionsprüfung (Box-zu-Zylinder-Kollision vereinfacht)
           if (dx < (0.5 + playerRadius) && 
               dz < (0.5 + playerRadius) && 
               dy < playerHeight && 
-              dy > -0.5) {
+              dy > -0.1) {
             return true; // Kollision erkannt
           }
         }
         return false; // Keine Kollision
       }
+      
+      // Finde höchsten Block unter dem Spieler
+      function getGroundHeight(x, z) {
+        let maxHeight = 0; // Boden-Level
+        
+        for (const key in blocks) {
+          const block = blocks[key];
+          const blockPos = block.position;
+          
+          // Prüfe ob Block unter dem Spieler ist
+          const dx = Math.abs(x - blockPos.x);
+          const dz = Math.abs(z - blockPos.z);
+          
+          if (dx < 0.8 && dz < 0.8) { // Etwas größerer Bereich für Bodenerkennung
+            const blockTop = blockPos.y + 0.5; // Oberkante des Blocks
+            if (blockTop > maxHeight) {
+              maxHeight = blockTop;
+            }
+          }
+        }
+        
+        return maxHeight;
+      }
 
       // Sprung-Physik verarbeiten
       function updateJump() {
+        const groundHeight = getGroundHeight(player.position.x, player.position.z);
+        const targetHeight = groundHeight + 1.6; // Spielerhöhe über dem Boden/Block
+        
         if (isJumping) {
           const newY = player.position.y + jumpVelocity;
           jumpVelocity -= gravity;
@@ -199,25 +262,20 @@
           const testPosition = player.position.clone();
           testPosition.y = newY;
           
-          if (!checkCollision(testPosition) && newY > 0.1) {
+          if (!checkCollision(testPosition) && newY > targetHeight) {
             player.position.y = newY;
           } else {
-            // Bei Kollision oder Boden: Sprung beenden
-            if (newY <= 2) {
-              player.position.y = 2; // Mindesthöhe über Boden
-            }
+            // Bei Kollision oder Landung: Sprung beenden
+            player.position.y = Math.max(targetHeight, player.position.y);
             isJumping = false;
             jumpVelocity = 0;
           }
         } else {
           // Schwerkraft anwenden wenn nicht auf festem Boden
-          const testPosition = player.position.clone();
-          testPosition.y -= 0.05;
-          
-          if (!checkCollision(testPosition) && player.position.y > 2) {
-            player.position.y -= 0.05; // Fallen
+          if (player.position.y > targetHeight + 0.1) {
+            player.position.y -= 0.1; // Schnelleres Fallen
           } else {
-            player.position.y = Math.max(2, player.position.y); // Mindesthöhe
+            player.position.y = targetHeight; // Auf Boden/Block setzen
           }
         }
       }
@@ -261,16 +319,16 @@
                   }
                 }
 
-                // Trigger für Block platzieren (mit Zustandsverfolgung)
+                // Trigger für Block abbauen (mit Zustandsverfolgung)
                 if (buttons[0]?.pressed && !leftTriggerPressed) {
                   leftTriggerPressed = true;
-                  placeBlock(source);
+                  removeBlock(source);
                 } else if (!buttons[0]?.pressed) {
                   leftTriggerPressed = false;
                 }
               }
 
-              // Rechter Controller: Drehung, Sprung und Block abbauen
+              // Rechter Controller: Drehung, Sprung und Block bauen
               if (handedness === 'right') {
                 const xAxis = axes[2] || 0; // Horizontale Achse
                 const deadzone = 0.1;
@@ -285,10 +343,10 @@
                   jumpVelocity = jumpSpeed;
                 }
 
-                // Trigger für Block abbauen (mit Zustandsverfolgung)
+                // Trigger für Block bauen (mit Zustandsverfolgung)
                 if (buttons[0]?.pressed && !rightTriggerPressed) {
                   rightTriggerPressed = true;
-                  removeBlock(source);
+                  placeBlock(source);
                 } else if (!buttons[0]?.pressed) {
                   rightTriggerPressed = false;
                 }
