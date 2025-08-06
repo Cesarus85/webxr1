@@ -48,19 +48,21 @@
 </head>
 <body>
   <a-scene>
-    <!-- Kamera mit Bewegung über Controller -->
-    <a-entity id="rig" movement-controls="speed: 0.1">
+    <!-- Kamera-Rig mit optimierter Bewegung -->
+    <a-entity id="rig" 
+              movement-controls="controls: gamepad; speed: 0.1; constrainToNavMesh: false"
+              position="0 0 0">
       <a-camera position="0 1.6 0"></a-camera>
       <!-- Rechter Controller -->
       <a-entity id="right-hand"
                 hand-controls="hand: right"
-                raycaster="objects: .block; far: 5"
+                raycaster="objects: .block; far: 5; showLine: false"
                 laser-controls
                 line="color: red; opacity: 0.75"></a-entity>
       <!-- Linker Controller -->
       <a-entity id="left-hand"
                 hand-controls="hand: left"
-                raycaster="objects: .block; far: 5"
+                raycaster="objects: .block; far: 5; showLine: false"
                 laser-controls
                 line="color: blue; opacity: 0.75"></a-entity>
     </a-entity>
@@ -143,6 +145,18 @@
 
     // Wende die Komponente auf die Szene an
     document.querySelector('a-scene').setAttribute('block-interaction', '');
+
+    // Sicherstellen, dass die Bewegung für Quest 3 Controller funktioniert
+    AFRAME.registerComponent('quest-movement', {
+      init: function () {
+        this.el.addEventListener('enter-vr', () => {
+          this.el.components['movement-controls'].updateControllers();
+        });
+      }
+    });
+
+    // Wende die Bewegungskomponente auf das Rig an
+    document.querySelector('#rig').setAttribute('quest-movement', '');
   </script>
 </body>
 </html>
