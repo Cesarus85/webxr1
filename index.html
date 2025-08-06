@@ -106,8 +106,9 @@
         wrist.position.set(0, -0.09, 0);
         hand.add(wrist);
         
-        // Hand korrekt orientieren: Handfläche zeigt nach unten, Finger nach vorne
+        // Hand korrekt orientieren: 180 Grad Drehung für richtige Ausrichtung
         hand.rotation.x = Math.PI / 2; // 90 Grad um X-Achse
+        hand.rotation.y = Math.PI; // 180 Grad um Y-Achse für korrekte Ausrichtung
         if (isRightHand) {
           hand.rotation.z = -Math.PI / 6; // Leichte Neigung nach außen
         } else {
