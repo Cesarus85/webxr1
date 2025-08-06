@@ -48,9 +48,9 @@
 </head>
 <body>
   <a-scene>
-    <!-- Kamera-Rig mit optimierter Bewegung -->
+    <!-- Kamera-Rig -->
     <a-entity id="rig" 
-              movement-controls="controls: gamepad; speed: 0.1; constrainToNavMesh: false"
+              quest-controller-movement
               position="0 0 0">
       <a-camera position="0 1.6 0"></a-camera>
       <!-- Rechter Controller -->
@@ -75,6 +75,56 @@
   </a-scene>
 
   <script>
+    // Benutzerdefinierte Komponente für Quest 3 Controller-Bewegung
+    AFRAME.registerComponent('quest-controller-movement', {
+      init: function () {
+        this.speed = 0.1; // Bewegungsgeschwindigkeit
+        this.leftController = document.querySelector('#left-hand');
+        this.rightController = document.querySelector('#right-hand');
+        this.rig = this.el;
+        this.camera = this.rig.querySelector('a-camera');
+
+        // Sicherstellen, dass Controller im VR-Modus erkannt werden
+        this.el.sceneEl.addEventListener('enter-vr', () => {
+          this.controllersReady = true;
+        });
+      },
+
+      tick: function (time, deltaTime) {
+        if (!this.controllersReady) return;
+
+        // Zugriff auf Oculus-Controller-Daten
+        const gamepad = this.leftController.components['hand-controls'].controller;
+        if (!gamepad) return;
+
+        // Daumenstick-Daten (x: links/rechts, y: vorwärts/rückwärts)
+        const [xAxis, yAxis] = gamepad.axes; // Quest 3: Achsen 2 und 3 für Daumenstick
+        const moveVector = new THREE.Vector3(xAxis, 0, -yAxis).multiplyScalar(this.speed * deltaTime / 1000);
+
+        // Bewegung relativ zur Kamerarotation
+        const cameraDirection = new THREE.Vector3();
+        this.camera.object3D.getWorldDirection(cameraDirection);
+        cameraDirection.y = 0; // Nur horizontale Bewegung
+        cameraDirection.normalize();
+
+        // Berechne Bewegung in Weltkoordinaten
+        const forward = cameraDirection.clone().multiplyScalar(moveVector.z);
+        const right = cameraDirection.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2).multiplyScalar(moveVector.x);
+        const move = forward.add(right);
+
+        // Aktualisiere Rig-Position
+        this.rig.object3D.position.add(move);
+
+        // Rotation mit rechtem Daumenstick
+        const rightGamepad = this.rightController.components['hand-controls'].controller;
+        if (rightGamepad) {
+          const [rxAxis] = rightGamepad.axes.slice(2); // Rechter Stick, x-Achse
+          const rotationSpeed = 0.05;
+          this.rig.object3D.rotation.y -= rxAxis * rotationSpeed * deltaTime / 1000;
+        }
+      }
+    });
+
     // A-Frame-Komponente für Block-Interaktion
     AFRAME.registerComponent('block-interaction', {
       init: function () {
@@ -143,20 +193,8 @@
       }
     });
 
-    // Wende die Komponente auf die Szene an
+    // Wende die Block-Interaktions-Komponente auf die Szene an
     document.querySelector('a-scene').setAttribute('block-interaction', '');
-
-    // Sicherstellen, dass die Bewegung für Quest 3 Controller funktioniert
-    AFRAME.registerComponent('quest-movement', {
-      init: function () {
-        this.el.addEventListener('enter-vr', () => {
-          this.el.components['movement-controls'].updateControllers();
-        });
-      }
-    });
-
-    // Wende die Bewegungskomponente auf das Rig an
-    document.querySelector('#rig').setAttribute('quest-movement', '');
   </script>
 </body>
 </html>
