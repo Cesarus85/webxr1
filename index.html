@@ -25,6 +25,8 @@
 
       // Szene, Kamera und Renderer initialisieren
       const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB); // Blauer Himmel
+      
       const camera = new THREE.PerspectiveCamera(
         75,
         window.innerWidth / window.innerHeight,
@@ -35,16 +37,27 @@
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       document.body.appendChild(renderer.domElement);
 
       // VR-Button hinzufügen
       document.body.appendChild(VRButton.createButton(renderer));
 
       // Beleuchtung
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
       scene.add(ambientLight);
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-      directionalLight.position.set(10, 10, 10);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(50, 50, 50);
+      directionalLight.castShadow = true;
+      directionalLight.shadow.mapSize.width = 2048;
+      directionalLight.shadow.mapSize.height = 2048;
+      directionalLight.shadow.camera.near = 0.5;
+      directionalLight.shadow.camera.far = 500;
+      directionalLight.shadow.camera.left = -50;
+      directionalLight.shadow.camera.right = 50;
+      directionalLight.shadow.camera.top = 50;
+      directionalLight.shadow.camera.bottom = -50;
       scene.add(directionalLight);
 
       // Spieler-Objekt (Gruppe für Kamera und Bewegung)
@@ -70,23 +83,49 @@
       // Bewegungs- und Rotationsgeschwindigkeit
       const moveSpeed = 0.1;
       const rotationSpeed = 0.05;
+      const jumpSpeed = 0.3;
+      let isJumping = false;
+      let jumpVelocity = 0;
+      const gravity = 0.01;
 
       // Weltgenerierung (Minecraft-ähnliche Blöcke)
-      const worldSize = 16; // 16x16x4 Welt
+      const worldSize = 20; // 20x20 Welt
       const blocks = {};
       const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
-      const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-      const dirtMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+      const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 }); // Grün
+      const stoneMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }); // Braun
+      const dirtMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 }); // Dunkler Braun
+      
+      // Boden erstellen
+      const groundGeometry = new THREE.PlaneGeometry(worldSize * 2, worldSize * 2);
+      const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x32CD32 });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -0.5;
+      ground.receiveShadow = true;
+      scene.add(ground);
 
-      // Einfache Welt generieren
+      // Einfache Welt mit Hügeln und Steinen generieren
       for (let x = 0; x < worldSize; x++) {
         for (let z = 0; z < worldSize; z++) {
-          const height = Math.floor(Math.random() * 2) + 1; // Zufällige Höhe (1-2 Blöcke)
+          // Höhere Variation für interessantere Landschaft
+          const height = Math.floor(Math.random() * 4) + 1; // Zufällige Höhe (1-4 Blöcke)
           for (let y = 0; y < height; y++) {
-            const block = new THREE.Mesh(blockGeometry, y === height - 1 ? grassMaterial : dirtMaterial);
+            let material;
+            if (y === height - 1 && height <= 2) {
+              material = grassMaterial; // Gras auf niedrigen Blöcken
+            } else if (height > 2) {
+              material = stoneMaterial; // Braune Steine für höhere Strukturen
+            } else {
+              material = dirtMaterial; // Erde
+            }
+            
+            const block = new THREE.Mesh(blockGeometry, material);
             block.position.set(x, y, z);
+            block.castShadow = true;
+            block.receiveShadow = true;
             scene.add(block);
-            blocks[`${x},${y},${z}`] = block; // Block speichern für Interaktion
+            blocks[`${x},${y},${z}`] = block;
           }
         }
       }
@@ -101,6 +140,21 @@
           handleControllerInput();
           renderer.render(scene, camera);
         });
+      }
+
+      // Sprung-Physik verarbeiten
+      function updateJump() {
+        if (isJumping) {
+          player.position.y += jumpVelocity;
+          jumpVelocity -= gravity;
+          
+          // Kollision mit Boden prüfen
+          if (player.position.y <= 2) { // Spieler-Grundhöhe
+            player.position.y = 2;
+            isJumping = false;
+            jumpVelocity = 0;
+          }
+        }
       }
 
       // Controller-Eingaben verarbeiten
@@ -120,33 +174,45 @@
                 const deadzone = 0.1;
 
                 if (Math.abs(xAxis) > deadzone || Math.abs(yAxis) > deadzone) {
-                  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                  forward.y = 0; // Bewegung in XZ-Ebene
-                  forward.normalize();
-                  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                  // Feste Weltrichtungen verwenden statt Kamera-Rotation
+                  const forward = new THREE.Vector3(0, 0, -1); // Nord
+                  const right = new THREE.Vector3(1, 0, 0);    // Ost
+                  
+                  // Bewegung relativ zur Spieler-Rotation, nicht Kamera
+                  forward.applyQuaternion(player.quaternion);
+                  right.applyQuaternion(player.quaternion);
+                  
+                  forward.y = 0;
                   right.y = 0;
+                  forward.normalize();
                   right.normalize();
 
                   player.position.addScaledVector(forward, -yAxis * moveSpeed);
                   player.position.addScaledVector(right, xAxis * moveSpeed);
                 }
 
-                // Block platzieren (Trigger-Taste)
+                // A-Taste für Sprung
+                if (buttons[4]?.pressed && !isJumping) { // A-Taste
+                  isJumping = true;
+                  jumpVelocity = jumpSpeed;
+                }
+
+                // Trigger für Block platzieren
                 if (buttons[0]?.pressed) {
                   placeBlock(source);
                 }
               }
 
-              // Rechter Controller: Drehung
+              // Rechter Controller: Drehung und Block abbauen
               if (handedness === 'right') {
                 const xAxis = axes[2] || 0; // Horizontale Achse
                 const deadzone = 0.1;
 
                 if (Math.abs(xAxis) > deadzone) {
-                  player.rotation.y -= xAxis * rotationSpeed; // Drehung um Y-Achse
+                  player.rotation.y -= xAxis * rotationSpeed;
                 }
 
-                // Block abbauen (Trigger-Taste)
+                // Trigger für Block abbauen
                 if (buttons[0]?.pressed) {
                   removeBlock(source);
                 }
@@ -154,22 +220,32 @@
             }
           }
         }
+        
+        // Sprung-Physik aktualisieren
+        updateJump();
       }
 
       // Block platzieren
+      let lastPlaceTime = 0;
       function placeBlock(source) {
+        const now = Date.now();
+        if (now - lastPlaceTime < 300) return; // Verhindert zu schnelles Platzieren
+        lastPlaceTime = now;
+        
         raycaster.setFromXRController(source);
         const intersects = raycaster.intersectObjects(Object.values(blocks), true);
         if (intersects.length > 0) {
           const intersect = intersects[0];
           const normal = intersect.face.normal.clone();
           const position = intersect.object.position.clone();
-          const newPosition = position.add(normal); // Block neben dem getroffenen Block platzieren
+          const newPosition = position.add(normal);
 
-          const key = `${newPosition.x},${newPosition.y},${newPosition.z}`;
-          if (!blocks[key]) {
-            const block = new THREE.Mesh(blockGeometry, grassMaterial);
-            block.position.copy(newPosition);
+          const key = `${Math.round(newPosition.x)},${Math.round(newPosition.y)},${Math.round(newPosition.z)}`;
+          if (!blocks[key] && newPosition.y >= 0) {
+            const block = new THREE.Mesh(blockGeometry, stoneMaterial);
+            block.position.set(Math.round(newPosition.x), Math.round(newPosition.y), Math.round(newPosition.z));
+            block.castShadow = true;
+            block.receiveShadow = true;
             scene.add(block);
             blocks[key] = block;
           }
@@ -177,7 +253,12 @@
       }
 
       // Block abbauen
+      let lastRemoveTime = 0;
       function removeBlock(source) {
+        const now = Date.now();
+        if (now - lastRemoveTime < 300) return; // Verhindert zu schnelles Abbauen
+        lastRemoveTime = now;
+        
         raycaster.setFromXRController(source);
         const intersects = raycaster.intersectObjects(Object.values(blocks), true);
         if (intersects.length > 0) {
