@@ -106,25 +106,28 @@
         wrist.position.set(0, -0.09, 0);
         hand.add(wrist);
         
-        // Hand korrekt orientieren: 180 Grad Drehung für richtige Ausrichtung
+        // Hand korrekt orientieren: Mehrfache Rotationen für richtige Ausrichtung
         hand.rotation.x = Math.PI / 2; // 90 Grad um X-Achse
-        hand.rotation.y = Math.PI; // 180 Grad um Y-Achse für korrekte Ausrichtung
+        hand.rotation.y = Math.PI; // 180 Grad um Y-Achse
+        hand.rotation.z = Math.PI; // 180 Grad um Z-Achse für finale Korrektur
+        
+        // Zusätzliche leichte Neigung für natürlichere Haltung
         if (isRightHand) {
-          hand.rotation.z = -Math.PI / 6; // Leichte Neigung nach außen
+          hand.rotation.z += -Math.PI / 12; // Leichte Neigung nach außen
         } else {
-          hand.rotation.z = Math.PI / 6; // Leichte Neigung nach außen
+          hand.rotation.z += Math.PI / 12; // Leichte Neigung nach außen
         }
         
         return hand;
       }
       
-      // WICHTIG: Controller-Zuordnung korrigieren
-      const rightHand = createHand(true);
+      // Controller-Zuordnung: Standard WebXR Zuordnung
       const leftHand = createHand(false);
+      const rightHand = createHand(true);
       player.add(controller1);
       player.add(controller2);
-      controller1.add(rightHand); // Controller 0 = rechte Hand
-      controller2.add(leftHand);  // Controller 1 = linke Hand
+      controller1.add(leftHand);  // Controller 0 = linke Hand
+      controller2.add(rightHand); // Controller 1 = rechte Hand
 
       // Bewegungs- und Rotationsgeschwindigkeit
       const moveSpeed = 0.1;
@@ -299,8 +302,8 @@
               const buttons = source.gamepad.buttons;
               const handedness = source.handedness;
 
-              // Rechter Controller: Bewegung (Controller 0)
-              if (handedness === 'right') {
+              // Linker Controller: Bewegung (Controller 0)
+              if (handedness === 'left') {
                 const xAxis = axes[2] || 0; // Horizontale Achse
                 const yAxis = axes[3] || 0; // Vertikale Achse
                 const deadzone = 0.1;
@@ -328,17 +331,17 @@
                   }
                 }
 
-                // Trigger für Block abbauen (mit Zustandsverfolgung)
-                if (buttons[0]?.pressed && !rightTriggerPressed) {
-                  rightTriggerPressed = true;
-                  removeBlock(source);
+                // Trigger für Block platzieren (mit Zustandsverfolgung) 
+                if (buttons[0]?.pressed && !leftTriggerPressed) {
+                  leftTriggerPressed = true;
+                  placeBlock(source);
                 } else if (!buttons[0]?.pressed) {
-                  rightTriggerPressed = false;
+                  leftTriggerPressed = false;
                 }
               }
 
-              // Linker Controller: Drehung, Sprung und Block bauen (Controller 1)
-              if (handedness === 'left') {
+              // Rechter Controller: Drehung, Sprung und Block abbauen (Controller 1)
+              if (handedness === 'right') {
                 const xAxis = axes[2] || 0; // Horizontale Achse
                 const deadzone = 0.1;
 
@@ -352,12 +355,12 @@
                   jumpVelocity = jumpSpeed;
                 }
 
-                // Trigger für Block bauen (mit Zustandsverfolgung)
-                if (buttons[0]?.pressed && !leftTriggerPressed) {
-                  leftTriggerPressed = true;
-                  placeBlock(source);
+                // Trigger für Block abbauen (mit Zustandsverfolgung)
+                if (buttons[0]?.pressed && !rightTriggerPressed) {
+                  rightTriggerPressed = true;
+                  removeBlock(source);
                 } else if (!buttons[0]?.pressed) {
-                  leftTriggerPressed = false;
+                  rightTriggerPressed = false;
                 }
               }
             }
@@ -381,8 +384,8 @@
         lastPlaceTime = now;
         
         try {
-          // Korrigierte Controller-Zuordnung
-          const controller = source.handedness === 'left' ? controller2 : controller1;
+          // Controller-Zuordnung für Block platzieren (linker Controller)
+          const controller = source.handedness === 'left' ? controller1 : controller2;
           
           // Präziser Raycast vom Controller aus
           const controllerMatrix = new THREE.Matrix4();
@@ -458,8 +461,8 @@
         lastRemoveTime = now;
         
         try {
-          // Korrigierte Controller-Zuordnung
-          const controller = source.handedness === 'right' ? controller1 : controller2;
+          // Controller-Zuordnung für Block abbauen (rechter Controller)
+          const controller = source.handedness === 'right' ? controller2 : controller1;
           
           // Präziser Raycast vom Controller aus
           const controllerMatrix = new THREE.Matrix4();
