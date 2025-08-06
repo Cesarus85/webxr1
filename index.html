@@ -121,13 +121,13 @@
         return hand;
       }
       
-      // Controller-Zuordnung: Standard WebXR Zuordnung
+      // Controller-Zuordnung: Hand-Modelle getauscht
       const leftHand = createHand(false);
       const rightHand = createHand(true);
       player.add(controller1);
       player.add(controller2);
-      controller1.add(leftHand);  // Controller 0 = linke Hand
-      controller2.add(rightHand); // Controller 1 = rechte Hand
+      controller1.add(rightHand); // Controller 0 = rechtes Hand-Modell
+      controller2.add(leftHand);  // Controller 1 = linkes Hand-Modell
 
       // Bewegungs- und Rotationsgeschwindigkeit
       const moveSpeed = 0.1;
