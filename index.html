@@ -106,9 +106,9 @@
         wrist.position.set(0, -0.09, 0);
         hand.add(wrist);
         
-        // Hand korrekt orientieren: Finale Rotation ohne Y-Achse
+        // Hand korrekt orientieren: Mehrfache Rotationen für richtige Ausrichtung
         hand.rotation.x = Math.PI / 2; // 90 Grad um X-Achse
-        hand.rotation.y = 0; // Keine Y-Rotation - Handflächen zeigen nach unten
+        hand.rotation.y = Math.PI; // 180 Grad um Y-Achse
         hand.rotation.z = Math.PI; // 180 Grad um Z-Achse für finale Korrektur
         
         // Zusätzliche leichte Neigung für natürlichere Haltung
