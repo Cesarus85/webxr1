@@ -1,291 +1,103 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minecraft-Klon in WebXR</title>
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.min.js"></script>
-</head>
-<body>
-  <a-scene>
-    <!-- Kamera-Rig -->
-    <a-entity id="rig" 
-              quest-controller-movement
-              position="0 0 0">
-      <a-camera position="0 1.6 0"></a-camera>
-      <!-- Rechter Controller -->
-      <a-entity id="right-hand"
-                hand-controls="hand: right"
-                tracked-controls
-                raycaster="objects: .block; far: 5; showLine: true; direction: 0 0 -1"
-                laser-controls
-                line="color: red; opacity: 0.75"
-                rotation="-15 0 0"></a-entity>
-      <!-- Linker Controller -->
-      <a-entity id="left-hand"
-                hand-controls="hand: left" 
-                tracked-controls
-                raycaster="objects: .block; far: 5; showLine: true; direction: 0 0 -1"
-                laser-controls
-                line="color: blue; opacity: 0.75"
-                rotation="-15 0 0"></a-entity>
-    </a-entity>
-
-    <!-- Boden -->
-    <a-plane rotation="-90 0 0" width="100" height="100" color="#7BC8A4"></a-plane>
-
-    <!-- Himmel -->
-    <a-sky color="#87CEEB"></a-sky>
-  </a-scene>
+  <meta charset="utf-8" />
+  <title>WebXR Thumbstick Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Bewegung & Drehung per Thumbsticks (Quest, Pico, WMR …)" />
+  <!-- A-Frame 1.5.0 -->
+  <script src="https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js"></script>
 
   <script>
-    // Benutzerdefinierte Komponente für Quest 3 Controller-Bewegung
+    /*----------  Bewegung + Drehung per VR-Controller  ---------*/
     AFRAME.registerComponent('quest-controller-movement', {
-      init: function () {
-        this.moveSpeed = 3.0; // Bewegungsgeschwindigkeit (m/s)
-        this.rotationSpeed = 2.0; // Rotationsgeschwindigkeit (rad/s)
-        this.rig = this.el;
-        this.camera = this.rig.querySelector('a-camera');
-        this.leftController = null;
-        this.rightController = null;
-        
-        // Event Listener für Controller-Initialisierung
-        this.el.sceneEl.addEventListener('controllerconnected', (event) => {
-          const controller = event.detail.target;
-          const handControls = controller.components['hand-controls'];
-          if (handControls && handControls.data.hand === 'left') {
-            this.leftController = controller;
-          } else if (handControls && handControls.data.hand === 'right') {
-            this.rightController = controller;
-          }
-        });
-        
-        // Fallback: Direct query nach Timeout
-        setTimeout(() => {
-          if (!this.leftController) this.leftController = document.querySelector('#left-hand');
-          if (!this.rightController) this.rightController = document.querySelector('#right-hand');
-        }, 1500);
+      schema: {                // anpassbar im HTML:  move-speed="4" rotation-speed="3"
+        moveSpeed:     {type: 'number', default: 3},   // m/s
+        rotationSpeed: {type: 'number', default: 2}    // rad/s
       },
 
-      tick: function (time, deltaTime) {
-        if (!this.leftController || !this.rightController) return;
-        
-        const dt = deltaTime / 1000; // Delta time in Sekunden
-        
-        // Alternative Methode: WebXR Gamepads direkt abfragen
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        
-        // Linker Controller für Bewegung (Thumbstick)
-        let leftGamepad = null;
-        let rightGamepad = null;
-        
-        // Versuche Gamepad über tracked-controls zu bekommen
-        if (this.leftController.components['tracked-controls']) {
-          leftGamepad = this.leftController.components['tracked-controls'].controller;
+      init () {
+        /* Achsen-State -------------------------------------------------- */
+        this.axis = {lx: 0, ly: 0, rx: 0};   // linker Stick (x,y) | rechter Stick (x)
+
+        /* Controller-Referenzen ---------------------------------------- */
+        this.left  = null;
+        this.right = null;
+
+        /* Abfangen, wenn Controller verbunden wird */
+        this.el.sceneEl.addEventListener('controllerconnected', e => {
+          const hand = e.detail.component.data.hand;
+          if (hand === 'left')  this.left  = e.detail.target;
+          if (hand === 'right') this.right = e.detail.target;
+        });
+
+        /* Thumbstick-Bewegungen ---------------------------------------- */
+        this.el.sceneEl.addEventListener('thumbstickmoved', e => {
+          const {x, y} = e.detail;
+          if (e.target === this.left)  { this.axis.lx =  x; this.axis.ly =  y; }
+          if (e.target === this.right) { this.axis.rx =  x; }
+        });
+      },
+
+      tick (t, dtMs) {
+        if (!this.left || !this.right) return;         // Controller noch nicht da
+        const dt   = dtMs / 1000;
+        const dead = 0.15;                             // Dead-Zone
+
+        /* -------- Translation (linker Stick) -------- */
+        const lx = Math.abs(this.axis.lx) > dead ? this.axis.lx : 0;
+        const ly = Math.abs(this.axis.ly) > dead ? this.axis.ly : 0;
+
+        if (lx !== 0 || ly !== 0) {
+          const yaw   = this.el.object3D.rotation.y;       // Blickrichtung
+          const speed = this.data.moveSpeed * dt;
+
+          // vor/zurück relativ zur Blickrichtung
+          const forward = new THREE.Vector3(
+            Math.sin(yaw), 0, Math.cos(yaw)
+          ).multiplyScalar(-ly * speed);
+
+          // rechts/links relativ zur Blickrichtung
+          const strafe = new THREE.Vector3(
+            Math.cos(yaw), 0, -Math.sin(yaw)
+          ).multiplyScalar(lx * speed);
+
+          this.el.object3D.position.add(forward.add(strafe));
         }
-        
-        if (this.rightController.components['tracked-controls']) {
-          rightGamepad = this.rightController.components['tracked-controls'].controller;
-        }
-        
-        // Fallback: Suche in allen Gamepads
-        if (!leftGamepad || !rightGamepad) {
-          for (let i = 0; i < gamepads.length; i++) {
-            const gamepad = gamepads[i];
-            if (gamepad && gamepad.hand) {
-              if (gamepad.hand === 'left' && !leftGamepad) {
-                leftGamepad = gamepad;
-              } else if (gamepad.hand === 'right' && !rightGamepad) {
-                rightGamepad = gamepad;
-              }
-            }
-          }
-        }
-        
-        // Bewegung mit linkem Controller
-        if (leftGamepad && leftGamepad.axes && leftGamepad.axes.length >= 4) {
-          const xAxis = leftGamepad.axes[2]; // Thumbstick X
-          const yAxis = leftGamepad.axes[3]; // Thumbstick Y
-          
-          // Deadzone für Thumbstick
-          const deadzone = 0.15;
-          const moveX = Math.abs(xAxis) > deadzone ? xAxis : 0;
-          const moveZ = Math.abs(yAxis) > deadzone ? -yAxis : 0; // Negiert für natürliche Bewegung
-          
-          if (moveX !== 0 || moveZ !== 0) {
-            // Bewegung relativ zur Rig-Rotation
-            const rigRotation = this.rig.object3D.rotation.y;
-            
-            // Berechne Bewegungsvektor in Weltkoordinaten
-            const forward = new THREE.Vector3(
-              Math.sin(rigRotation),
-              0,
-              Math.cos(rigRotation)
-            ).multiplyScalar(moveZ * this.moveSpeed * dt);
-            
-            const right = new THREE.Vector3(
-              Math.cos(rigRotation),
-              0,
-              -Math.sin(rigRotation)
-            ).multiplyScalar(moveX * this.moveSpeed * dt);
-            
-            const movement = forward.add(right);
-            this.rig.object3D.position.add(movement);
-          }
-        }
-        
-        // Rotation mit rechtem Controller
-        if (rightGamepad && rightGamepad.axes && rightGamepad.axes.length >= 4) {
-          const rotateX = rightGamepad.axes[2]; // Thumbstick X für Rotation
-          
-          // Deadzone für Rotation
-          const deadzone = 0.15;
-          if (Math.abs(rotateX) > deadzone) {
-            this.rig.object3D.rotation.y -= rotateX * this.rotationSpeed * dt;
-          }
-        }
-        
-        // Debug: Log gamepad status (entfernen nach dem Test)
-        if (time % 1000 < 16) { // Nur einmal pro Sekunde loggen
-          console.log('Left gamepad:', leftGamepad ? 'found' : 'not found');
-          console.log('Right gamepad:', rightGamepad ? 'found' : 'not found');
-          if (leftGamepad && leftGamepad.axes) {
-            console.log('Left axes:', leftGamepad.axes.slice(2, 4));
-          }
-          if (rightGamepad && rightGamepad.axes) {
-            console.log('Right axes:', rightGamepad.axes.slice(2, 4));
-          }
+
+        /* -------- Rotation (rechter Stick) ---------- */
+        const rx = Math.abs(this.axis.rx) > dead ? this.axis.rx : 0;
+        if (rx !== 0) {
+          this.el.object3D.rotation.y -= rx * this.data.rotationSpeed * dt;
         }
       }
     });
-
-    // A-Frame-Komponente für Block-Interaktion
-    AFRAME.registerComponent('block-interaction', {
-      init: function () {
-        this.el.sceneEl.addEventListener('loaded', () => {
-          this.generateWorld();
-        });
-
-        // Warte auf Controller-Initialisierung für Block-Interaktion
-        const self = this;
-        setTimeout(() => {
-          const rightHand = document.querySelector('#right-hand');
-          const leftHand = document.querySelector('#left-hand');
-          
-          if (rightHand) {
-            // Block platzieren (rechter Controller, Trigger)
-            rightHand.addEventListener('triggerdown', () => {
-              const raycaster = rightHand.components.raycaster;
-              if (raycaster) {
-                const intersections = raycaster.intersectedEls;
-                if (intersections.length > 0) {
-                  // Platzieren neben dem getroffenen Block
-                  const intersection = raycaster.getIntersection(intersections[0]);
-                  if (intersection) {
-                    const point = intersection.point;
-                    const normal = intersection.face.normal;
-                    const newPos = new THREE.Vector3().copy(point).add(normal);
-                    newPos.x = Math.round(newPos.x);
-                    newPos.y = Math.max(0, Math.round(newPos.y));
-                    newPos.z = Math.round(newPos.z);
-                    self.addBlock(newPos);
-                  }
-                } else {
-                  // Platzieren vor dem Controller
-                  const direction = new THREE.Vector3(0, 0, -1);
-                  direction.applyQuaternion(rightHand.object3D.quaternion);
-                  const pos = rightHand.object3D.position.clone().add(direction.multiplyScalar(2));
-                  self.addBlock({
-                    x: Math.round(pos.x),
-                    y: Math.max(0, Math.round(pos.y)),
-                    z: Math.round(pos.z)
-                  });
-                }
-              }
-            });
-          }
-
-          if (leftHand) {
-            // Block entfernen (linker Controller, Trigger)
-            leftHand.addEventListener('triggerdown', () => {
-              const raycaster = leftHand.components.raycaster;
-              if (raycaster) {
-                const intersections = raycaster.intersectedEls;
-                if (intersections.length > 0) {
-                  intersections[0].remove();
-                }
-              }
-            });
-          }
-        }, 1500);
-      },
-
-      // Generiere eine einfache Welt aus Blöcken
-      generateWorld: function () {
-        for (let x = -5; x <= 5; x++) {
-          for (let z = -5; z <= 5; z++) {
-            if (Math.random() > 0.7) {
-              this.addBlock({ x, y: 0, z });
-            }
-          }
-        }
-      },
-
-      // Füge einen Block hinzu
-      addBlock: function (position) {
-        const block = document.createElement('a-box');
-        block.setAttribute('position', `${position.x} ${position.y} ${position.z}`);
-        block.setAttribute('color', '#8B4513');
-        block.setAttribute('class', 'block');
-        block.setAttribute('width', '1');
-        block.setAttribute('height', '1');
-        block.setAttribute('depth', '1');
-        this.el.sceneEl.appendChild(block);
-      }
-    });
-
-    // Wende die Block-Interaktions-Komponente auf die Szene an
-    document.querySelector('a-scene').setAttribute('block-interaction', '');
   </script>
+</head>
+
+<body style="margin:0; background:#000">
+  <a-scene
+    renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
+    xr-mode-ui="enabled: true"
+    background="color: #ECECEC">
+
+    <!-- Boden ----------------------------------------------------- -->
+    <a-plane color="#7BC8A4" width="50" height="50" rotation="-90 0 0"></a-plane>
+
+    <!-- Testobjekte in der Szene ---------------------------------- -->
+    <a-box position="0 1 -3"  depth="1" height="1" width="1"   color="#4CC3D9"></a-box>
+    <a-sphere position="2 1.25 -5" radius="1.25"                 color="#EF2D5E"></a-sphere>
+    <a-cylinder position="-2 0.75 -5" radius="0.5" height="1.5"  color="#FFC65D"></a-cylinder>
+
+    <!-- Kamera-Rig mit Movement-Komponente ------------------------ -->
+    <a-entity id="rig" quest-controller-movement>
+      <a-entity camera position="0 1.6 0"></a-entity>
+
+      <!-- Controller-Entities (emittieren thumbstickmoved) -------- -->
+      <a-entity hand-controls="hand: left;  handModelStyle: lowpoly; color: #ffdddd"></a-entity>
+      <a-entity hand-controls="hand: right; handModelStyle: lowpoly; color: #ddddff"></a-entity>
+    </a-entity>
+
+  </a-scene>
 </body>
 </html>
